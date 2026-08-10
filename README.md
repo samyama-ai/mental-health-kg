@@ -54,11 +54,6 @@ graph LR
     F -- "OFFERS<br/>1,417,479" --> SV
     F -- "SPEAKS<br/>15,740" --> L
     SV -- "IN_CATEGORY<br/>313" --> SC
-
-    classDef hub fill:#1f6feb,stroke:#0d419d,color:#fff
-    classDef dim fill:#21262d,stroke:#484f58,color:#e6edf3
-    class F hub
-    class S,FT,SV,SC,L dim
 ```
 
 **6 node labels** -- Facility (17,254), Service (313), State (52), ServiceCategory (33), Language (24), FacilityType (2)
