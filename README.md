@@ -40,11 +40,35 @@ agg demo/mental-health.cast demo/mental-health.gif                      # conver
 
 ## Schema
 
-**Node labels** -- Condition, Symptom, Treatment, Medication, RiskFactor, Population
-**Edge types** -- HAS_SYMPTOM, TREATED_BY, TREATS, PRESCRIBED_FOR, INCREASES_RISK, AFFECTS
-**Data sources** -- {{SOURCES}}
+```mermaid
+graph LR
+    F("Facility<br/>17,254")
+    S("State<br/>52")
+    FT("FacilityType<br/>2 — MH / SA")
+    SV("Service<br/>313")
+    SC("ServiceCategory<br/>33")
+    L("Language<br/>24")
 
-See [`schema/mental_health_kg.cypher`](schema/mental_health_kg.cypher) for the full schema.
+    F -- "LOCATED_IN<br/>17,254" --> S
+    F -- "HAS_TYPE<br/>23,293" --> FT
+    F -- "OFFERS<br/>1,417,479" --> SV
+    F -- "SPEAKS<br/>15,740" --> L
+    SV -- "IN_CATEGORY<br/>313" --> SC
+
+    classDef hub fill:#1f6feb,stroke:#0d419d,color:#fff
+    classDef dim fill:#21262d,stroke:#484f58,color:#e6edf3
+    class F hub
+    class S,FT,SV,SC,L dim
+```
+
+**6 node labels** -- Facility (17,254), Service (313), State (52), ServiceCategory (33), Language (24), FacilityType (2)
+
+**5 edge types** -- OFFERS, HAS_TYPE, LOCATED_IN, SPEAKS, IN_CATEGORY
+
+**Data source** -- [FindTreatment.gov](https://findtreatment.gov) (SAMHSA / BHSIS) — US federal government work, public domain. New facilities monthly; services and phones updated weekly.
+
+See [`schema/mental_health_kg.cypher`](schema/mental_health_kg.cypher) for constraints and
+[`docs/schema.md`](docs/schema.md) for design decisions, sources and deferred layers.
 
 ## Quick Start
 

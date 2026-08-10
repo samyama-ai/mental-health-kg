@@ -4,6 +4,28 @@
 //
 // Node labels: Facility, State, FacilityType, ServiceCategory, Service, Language
 // Edge types:  LOCATED_IN, HAS_TYPE, OFFERS, IN_CATEGORY, SPEAKS
+//
+// (rendered version of this diagram: docs/schema.md)
+//
+//                         ┌──────────────────┐
+//                         │      State       │  52
+//                         └────────▲─────────┘
+//                                  │ LOCATED_IN  17,254
+//                                  │
+//    ┌──────────────┐   HAS_TYPE   │   OFFERS    ┌──────────────┐  IN_CATEGORY  ┌───────────────────┐
+//    │ FacilityType │◄─────────────┤────────────►│   Service    │──────────────►│  ServiceCategory  │
+//    │  MH  /  SA   │    23,293    │  1,417,479  │     313      │      313      │        33         │
+//    └──────────────┘              │             └──────────────┘               └───────────────────┘
+//                            ┌─────┴──────┐
+//                            │  Facility  │  17,254   ← the hub
+//                            └─────┬──────┘
+//                                  │ SPEAKS  15,740
+//                                  ▼
+//                         ┌──────────────────┐
+//                         │     Language     │  24
+//                         └──────────────────┘
+//
+// Totals: 17,678 nodes · 1,474,079 edges. OFFERS alone is 96% of all edges.
 
 // ---------------------------------------------------------------------------
 // Constraints
