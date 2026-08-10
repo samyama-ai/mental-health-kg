@@ -119,16 +119,30 @@ Recorded because they cost time and are not in the published documentation.
 
 ### Engine defects encountered
 
-Found while querying the loaded graph. Both affect anyone building a KG from the
+Found while querying the loaded graph. All three affect anyone building a KG from the
 shared template, which pins `samyama>=0.6.0` and therefore resolves to **0.6.1**.
+
+The third is the serious one: **negative constraints cannot be expressed at all in
+SDK 0.6.1**, so any KG needing "matching X but not Y" must run against a server.
 
 - **`RETURN DISTINCT` is a silent no-op** in SDK 0.6.1. `count(DISTINCT …)` and
   `WITH DISTINCT …` both work correctly. Reproduced minimally: 3 identical nodes +
   1 different, `RETURN DISTINCT p.name` returns 4 rows instead of 2. The engine at
   v1.1.0 carries a regression test (`test_return_distinct_values`) asserting the
   correct behaviour, so this appears fixed but unpublished.
-- **`EXISTS { … }` block syntax is not supported** — parse error. Use
-  `OPTIONAL MATCH … WHERE x IS NULL` for a negative constraint.
+- **`EXISTS { … }` block syntax is not supported** — parse error.
+- **`OPTIONAL MATCH … WHERE x IS NULL` returns the exact inverse** in SDK 0.6.1, so the
+  usual workaround for the above is itself unusable. On the MA subset, "IPV survivors +
+  trauma counselling, excluding opioid-use-disorder-only programmes" should be 127 of
+  138; embedded 0.6.1 returns **11** — precisely the 138 − 127 that *do* offer the
+  excluded service. Six formulations were tried and none work embedded: `OPTIONAL MATCH`
+  with the predicate in `WHERE` or inline, `WITH DISTINCT` first, `count(x) = 0`, and
+  `size(collect(x)) = 0` all return 11 or an empty result; `NOT (f)-[:OFFERS]->(:Service
+  {…})` and `WHERE NOT "…" IN collect(…)` are parse errors. The **server engine (1.7.0)
+  answers all of them correctly** — verified at 127 and 67 against an independent count
+  over the source CSVs. This is why `demo/demo.py` requires a server.
+- **A `WHERE` cannot be followed by another `MATCH`.** Match every required pattern in
+  one `MATCH`, then `WITH`, then the optional part.
 
 ## Planned — not in v0.1
 
