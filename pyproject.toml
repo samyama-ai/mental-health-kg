@@ -1,7 +1,7 @@
 [project]
 name = "mental_health-kg"
 version = "0.1.0"
-description = "Mental Health knowledge graph built on Samyama — conditions, symptoms, treatments, medications"
+description = "Mental Health knowledge graph built on Samyama — US behavioural-health facilities, services, languages and referral routing"
 requires-python = ">=3.10"
 dependencies = [
     "samyama>=0.6.0",
