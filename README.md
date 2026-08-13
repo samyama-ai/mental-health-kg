@@ -1,6 +1,6 @@
 # Mental Health Knowledge Graph
 
-**17,678 nodes. 1,474,079 edges. Every US behavioural-health facility, the services it offers, the languages it speaks and how it is paid for — from one federal source.**
+**113,703 nodes. 1,665,143 edges. Four sources in one graph: every US behavioural-health facility and what it offers, the clinicians licensed to practise, the federal shortage designations, and a simulated population to measure coverage against.**
 
 ![Mental health demo](demo/mental-health.gif)
 
@@ -31,18 +31,21 @@ RETURN f.name, f.city, f.intake
 
 ## Demo
 
-A narrated walkthrough, scoped to Massachusetts so it loads in seconds: load -> who the
-data names -> the multi-constraint referral -> the exclusion query -> the coverage gap.
-Every number is real federal data.
+A long-form narrated walkthrough of the whole graph — nine steps, ~92 seconds,
+paced to be read: provenance -> supply -> the multi-constraint referral -> the
+exclusion query -> simulated demand -> the coverage gap -> federal shortage
+designations -> real clinical capacity -> a named clinician with a licence.
 
 ```bash
-docker run -d --name samyama-demo -p 18080:8080 \
-  public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0                           # needs a server
-MH_URL=http://localhost:18080 python -m demo.demo                       # run live
-asciinema rec --overwrite --cols 92 --rows 32 --idle-time-limit 2.0 \
-  -c "bash -c 'python -m demo.demo'" demo/mental-health.cast            # re-record
-agg --font-size 14 --speed 1.4 demo/mental-health.cast demo/mental-health.gif   # → gif
+docker run -d --name samyama-mh -p 18080:8080 \
+  public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0                       # server
+curl -X POST http://localhost:18080/api/snapshot/import \
+  -F "file=@snapshots/mental-health-full.sgsnap"                    # ~2.5s
+MH_URL=http://localhost:18080 python -m demo.demo                   # run live
 ```
+
+See [`demo/README.md`](demo/README.md) for re-recording, including the two
+asciinema settings that quietly make the result unreadable if set wrong.
 
 > The demo needs a **server**, not the embedded client. PyPI `samyama` 0.6.1 inverts
 > `OPTIONAL MATCH` exclusion — step 4 returns the 11 facilities that *do* offer the
@@ -54,25 +57,59 @@ agg --font-size 14 --speed 1.4 demo/mental-health.cast demo/mental-health.gif   
 
 ```mermaid
 graph LR
-    F("Facility<br/>17,254")
+    subgraph supply["supply · FindTreatment.gov"]
+        F("Facility<br/>17,254")
+        SV("Service<br/>313")
+        SC("ServiceCategory<br/>33")
+        L("Language<br/>24")
+        FT("FacilityType<br/>2")
+    end
+    subgraph capacity["capacity · NPPES"]
+        PR("Provider<br/>82,978")
+        TX("Taxonomy<br/>76")
+    end
+    subgraph shortage["context · HRSA"]
+        SA("ShortageArea<br/>6,420")
+        CT("County<br/>3,037")
+    end
+    subgraph demand["demand · Synthea (synthetic)"]
+        PA("Patient<br/>3,500")
+        CO("Condition<br/>11")
+    end
     S("State<br/>52")
-    FT("FacilityType<br/>2 — MH / SA")
-    SV("Service<br/>313")
-    SC("ServiceCategory<br/>33")
-    L("Language<br/>24")
 
-    F -- "LOCATED_IN<br/>17,254" --> S
-    F -- "HAS_TYPE<br/>23,293" --> FT
-    F -- "OFFERS<br/>1,417,479" --> SV
-    F -- "SPEAKS<br/>15,740" --> L
-    SV -- "IN_CATEGORY<br/>313" --> SC
+    F -- "OFFERS 1,417,479" --> SV
+    F -- "SPEAKS 15,740" --> L
+    F -- "HAS_TYPE 23,293" --> FT
+    F -- "LOCATED_IN 17,254" --> S
+    SV -- "IN_CATEGORY 313" --> SC
+    PR -- "HAS_TAXONOMY 82,978" --> TX
+    PR -- "PRACTICES_IN 82,978" --> S
+    S -- "HAS_PROVIDERS 3,329" --> TX
+    SA -- "COVERS 7,838" --> CT
+    CT -- "IN_STATE 3,023" --> S
+    PA -- "HAS_CONDITION 3,918" --> CO
+    PA -- "LIVES_IN 3,500" --> S
+    PA -- "IN_COUNTY 3,500" --> CT
 ```
 
-**6 node labels** -- Facility (17,254), Service (313), State (52), ServiceCategory (33), Language (24), FacilityType (2)
+`State` is the hub every source joins on; `County` joins HRSA to the population.
 
-**5 edge types** -- OFFERS, HAS_TYPE, LOCATED_IN, SPEAKS, IN_CATEGORY
+**13 node labels** -- Provider (82,978), Facility (17,254), ShortageArea (6,420),
+Patient (3,500), County (3,037), Service (313), Taxonomy (76), State (52),
+ServiceCategory (33), Language (24), Condition (11), DataSource (3), FacilityType (2)
 
-**Data source** -- [FindTreatment.gov](https://findtreatment.gov) (SAMHSA / BHSIS) — US federal government work, public domain. The authoritative refresh is **annual**, via SAMHSA's N-MHSS survey; new facilities are added monthly, and names, addresses, phones and services are updated weekly *only if a facility reports a change*. So the service tags this graph filters on are survey answers that may be up to a year old — see [`docs/schema.md`](docs/schema.md#data-currency).
+**13 edge types** -- OFFERS, PRACTICES_IN, HAS_TAXONOMY, HAS_TYPE, LOCATED_IN, SPEAKS,
+COVERS, HAS_CONDITION, LIVES_IN, IN_COUNTY, HAS_PROVIDERS, IN_STATE, IN_CATEGORY
+
+**Data sources** -- all US federal government work, public domain:
+[FindTreatment.gov](https://findtreatment.gov) (SAMHSA/BHSIS) for facilities and services;
+[NPPES](https://download.cms.gov/nppes/NPI_Files.html) for licensed clinicians;
+[HRSA](https://data.hrsa.gov/data/download) for mental-health shortage designations.
+Demand is simulated with [Synthea](https://github.com/synthetichealth/synthea) (Apache 2.0) —
+**every synthetic node carries `synthetic: true`, and no node anywhere describes a real
+person seeking help.** Refresh cadences differ sharply and matter; see
+[`docs/schema.md`](docs/schema.md#data-currency).
 
 See [`schema/mental_health_kg.cypher`](schema/mental_health_kg.cypher) for constraints and
 [`docs/schema.md`](docs/schema.md) for design decisions, sources and deferred layers.

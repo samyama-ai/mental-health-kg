@@ -124,6 +124,12 @@ facilities inform SAMHSA of changes."* The systematic refresh is therefore yearl
 numbers may be fresher than service tags, and the service tags — `IPV`, languages,
 sliding-fee scale — are exactly what this graph filters on. Treat them as up to a year old.
 
+**NPPES.** Monthly full-replacement file, and the freshest layer here: the copy loaded was
+published 2026-08-10 covering NPIs through 2026-08-09. There is no incremental feed worth
+using at a monthly cadence. Same caveat as HRSA applies in principle — the file carries a
+per-record `Last Update Date`, so record-level staleness is measurable and has not been
+measured yet.
+
 **HRSA HPSA.** The daily rebuild gets you a fresh *file*, not fresh *facts*. Measured
 across the 13,836 designated mental-health rows in our copy:
 
@@ -184,6 +190,26 @@ SDK 0.6.1**, so any KG needing "matching X but not Y" must run against a server.
   over the source CSVs. This is why `demo/demo.py` requires a server.
 - **A `WHERE` cannot be followed by another `MATCH`.** Match every required pattern in
   one `MATCH`, then `WITH`, then the optional part.
+- **`ORDER BY` is inverted between aggregates and plain properties, and fails silently —
+  no error, just unsorted output.** Verified 2026-08-13 on the loaded graph:
+
+  | value being sorted | works | silently unsorted |
+  |---|---|---|
+  | aggregate — `count(f) AS n` | `ORDER BY n` | `ORDER BY count(f)` |
+  | property — `h.count AS n` | `ORDER BY h.count` | `ORDER BY n` |
+
+  This is the dangerous class of defect: a "top 5 by volume" table comes back in
+  insertion order and looks perfectly plausible. It shipped into a demo recording
+  before it was caught. Sort in the form that matches the value, or use
+  `WITH … ORDER BY …` which works for both.
+- **`batch_create_edges` from the shared template does not scale.** It emits one `MATCH`
+  pattern per edge — 300+ per query — and its cost grows with the number of nodes already
+  carrying the matched label. It SIGKILLed the server (exit 137, which reads as host OOM
+  and is not) at 3,500 `Patient` nodes, and silently created only 236 of 3,536 edges when
+  the batch spanned many distinct `State`/`Taxonomy` pairs. Use a set-based form instead:
+  `MATCH (s:X) WHERE s.key IN [...] WITH s MATCH (t:Y) WHERE t.key = "..." CREATE ...`,
+  which is two patterns regardless of batch size and ran ~5× faster. Every KG repo copies
+  this helper verbatim.
 
 ## Planned — not in v0.1
 
