@@ -101,7 +101,7 @@ def main() -> None:
     time.sleep(3.0)
 
     # ---------------------------------------------------------------- 1
-    step(1, "Where the data comes from")
+    step(1, "Where did this data come from, and how old is it?")
     say("provenance first — the graph records its own sources and their age")
     rows = client.query(
         "MATCH (d:DataSource) RETURN d.name, d.fetched_on, d.real_data, d.cadence",
@@ -110,7 +110,7 @@ def main() -> None:
           ["source", "fetched", "kind"], [20, 12, 10])
 
     # ---------------------------------------------------------------- 2
-    step(2, "Supply — what exists")
+    step(2, "How much help exists across the country?")
     say("every US behavioural-health facility, and what each one offers")
     run(client, "MATCH (f:Facility) RETURN count(f) AS facilities",
         "facilities nationally", lambda v: f"{v:,}")
@@ -123,7 +123,7 @@ def main() -> None:
     table(rows, ["language", "facilities"], [46, 10])
 
     # ---------------------------------------------------------------- 3
-    step(3, "The referral — four constraints at once")
+    step(3, "Where can a survivor get help, in Spanish, on a sliding scale?")
     say("a survivor of intimate partner violence, needs Spanish, cannot pay full fee")
     q = (f'MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(b:Service), '
          f'(f)-[:OFFERS]->(c:Service) WHERE a.value = "{IPV}" AND b.value = "{SLIDING}" '
@@ -139,7 +139,7 @@ def main() -> None:
     say("named places with numbers — not one generic national hotline")
 
     # ---------------------------------------------------------------- 4
-    step(4, "The query vector search cannot do — exclusion")
+    step(4, "Which of those do trauma counselling but are NOT opioid-only?")
     say("trauma counselling for survivors, EXCLUDING opioid-use-disorder-only programmes")
     q = (f'MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(t:Service) '
          f'WHERE a.value = "{IPV}" AND t.value = "{TRAUMA}" AND f.state = "MA" '
@@ -150,7 +150,7 @@ def main() -> None:
     say('"not this" is a traversal. An embedding cannot represent absence.')
 
     # ---------------------------------------------------------------- 5
-    step(5, "Demand — simulated people, so no real person is involved")
+    step(5, "Who needs that help, and where do they live?")
     say("Synthea generates synthetic patients with a location, income and conditions")
     run(client, "MATCH (p:Patient) RETURN count(p) AS n", "synthetic patients",
         lambda v: f"{v:,}")
@@ -160,7 +160,7 @@ def main() -> None:
         'RETURN count(p) AS n', "of them survivors of partner abuse")
 
     # ---------------------------------------------------------------- 6
-    step(6, "The coverage gap — supply against demand")
+    step(6, "Which languages can Vermont actually serve?")
     say("Vermont: which languages do its facilities actually offer?")
     rows = client.query(
         'MATCH (f:Facility)-[:SPEAKS]->(l:Language) WHERE f.state = "VT" '
@@ -169,7 +169,7 @@ def main() -> None:
     say("no Spanish anywhere in the state — and French is the larger need there")
 
     # ---------------------------------------------------------------- 7
-    step(7, "Federal corroboration — HRSA shortage areas")
+    step(7, "Does the government already call these areas under-served?")
     say("does the government already consider these places under-served?")
     run(client, "MATCH (sa:ShortageArea) RETURN count(sa) AS n",
         "designated mental-health shortage areas", lambda v: f"{v:,}")
@@ -182,7 +182,7 @@ def main() -> None:
     table(rows, ["state", "survivors in a shortage county"], [8, 32])
 
     # ---------------------------------------------------------------- 8
-    step(8, "Real clinical capacity — the NPI register")
+    step(8, "Is there anyone actually there to provide the care?")
     say("facilities existing is not the same as clinicians existing")
     rows = client.query(
         f'MATCH (s:State)-[h:HAS_PROVIDERS]->(t:Taxonomy) WHERE t.code = "{PSYCHIATRY}" '
@@ -194,7 +194,7 @@ def main() -> None:
     table(rows, ["state", "psychiatrists"], [8, 14])
 
     # ---------------------------------------------------------------- 9
-    step(9, "Down to a named clinician")
+    step(9, "Can we name a real clinician, with a licence number?")
     say("real people, real licence numbers — public federal register")
     rows = client.query(
         f'MATCH (p:Provider)-[:HAS_TAXONOMY]->(t:Taxonomy), (p)-[:PRACTICES_IN]->(s:State) '
