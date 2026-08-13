@@ -72,7 +72,7 @@ graph LR
 
 **5 edge types** -- OFFERS, HAS_TYPE, LOCATED_IN, SPEAKS, IN_CATEGORY
 
-**Data source** -- [FindTreatment.gov](https://findtreatment.gov) (SAMHSA / BHSIS) — US federal government work, public domain. New facilities monthly; services and phones updated weekly.
+**Data source** -- [FindTreatment.gov](https://findtreatment.gov) (SAMHSA / BHSIS) — US federal government work, public domain. The authoritative refresh is **annual**, via SAMHSA's N-MHSS survey; new facilities are added monthly, and names, addresses, phones and services are updated weekly *only if a facility reports a change*. So the service tags this graph filters on are survey answers that may be up to a year old — see [`docs/schema.md`](docs/schema.md#data-currency).
 
 See [`schema/mental_health_kg.cypher`](schema/mental_health_kg.cypher) for constraints and
 [`docs/schema.md`](docs/schema.md) for design decisions, sources and deferred layers.

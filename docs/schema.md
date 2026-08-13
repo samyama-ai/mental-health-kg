@@ -103,7 +103,48 @@ referral routing needs.
 | API doc | v1.11, 2026-05-26 |
 | Endpoint | `GET /locator/exportsAsJson/v2` |
 | Licence | **US federal government work — public domain** |
-| Refresh | new facilities monthly; names, addresses, phones and services **weekly** |
+| Refresh | **annual** (N-MHSS survey) — see *Data currency* below |
+
+## Data currency
+
+Checked 2026-08-13, because "how often does it update?" has a more awkward answer than
+the headline numbers suggest, and every filter in this graph depends on it.
+
+| Layer | Publisher cadence | What actually moves |
+|---|---|---|
+| FindTreatment.gov | annual survey; monthly additions; weekly corrections | the **weekly channel is opt-in** — it fires only when a facility notifies SAMHSA |
+| HRSA HPSA | file rebuilt **daily** | designations themselves change rarely |
+| Synthea | not a feed — a generator | pinned by jar version + `-s` seed |
+| Census ACS | annual, 5-year estimates each December | inherently lags 1–2 years |
+
+**FindTreatment.gov.** SAMHSA's own wording: *"All information in the Locator is updated
+annually based on facility responses to SAMHSA's National Mental Health Services Survey…
+updates to facility names, addresses, telephone numbers and services are made weekly, if
+facilities inform SAMHSA of changes."* The systematic refresh is therefore yearly. Phone
+numbers may be fresher than service tags, and the service tags — `IPV`, languages,
+sliding-fee scale — are exactly what this graph filters on. Treat them as up to a year old.
+
+**HRSA HPSA.** The daily rebuild gets you a fresh *file*, not fresh *facts*. Measured
+across the 13,836 designated mental-health rows in our copy:
+
+| Last updated | designations | |
+|---|---:|---:|
+| under 90 days | 1,053 | 8% |
+| 90–365 days | 10,159 | 73% |
+| 1–3 years | 823 | 6% |
+| over 3 years | 1,801 | 13% |
+
+Newest update 2026-08-05, oldest 2016-09-22; designation dates run back to **1973**.
+
+**Consequence.** The graph is only as current as its slowest authoritative layer, and that
+is annual. Rebuilding weekly would re-download near-identical service data for ~6 minutes
+of fetch and ~14 minutes of load. **Monthly is the recommended rebuild cadence** — it
+catches the genuinely monthly channel (new facilities) and HRSA churn without implying a
+currency the source does not have. There is no incremental feed for either source; both
+are full snapshots.
+
+Fetch dates are recorded in the graph itself as `:DataSource` nodes, so a `.sgsnap` says
+how old it is without reference to this document.
 
 ### API defects worked around
 
