@@ -225,6 +225,8 @@ def main() -> None:
     # ---------------------------------------------------------------- 9
     step(9, "Can we name a real clinician, with a licence number?")
     say("real people, real licence numbers — public federal register")
+    say("but 71% of these records were last updated over three years ago:")
+    say("authoritative for WHO is licensed, not for where they practise today")
     rows = client.query(
         f'MATCH (p:Provider)-[:HAS_TAXONOMY]->(t:Taxonomy), (p)-[:PRACTICES_IN]->(s:State) '
         f'WHERE t.code = "{PSYCHIATRY}" AND s.code = "VT" AND p.is_organization = false '

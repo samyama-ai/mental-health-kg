@@ -55,12 +55,15 @@ SOURCES = [
         "real_data": True,
         "fetched_on": "2026-08-13",
         "cadence": "monthly full-replacement file; no usable incremental feed",
-        "caveat": ("File published 2026-08-10 covering NPIs through 2026-08-09 - "
-                   "the freshest layer here. Individual providers are loaded for "
-                   "MA and VT only; every other state has the national aggregate "
-                   "count but no named clinicians. Applied Behaviour Analysis "
-                   "taxonomies are excluded (587,194 behaviour technicians work "
-                   "in autism services, not behavioural-health referral)."),
+        "caveat": ("Freshest FILE, stalest RECORDS. Published 2026-08-10 covering "
+                   "NPIs through 2026-08-09, but 70.7% of loaded providers were "
+                   "last updated over 3 years ago and 50.9% have never been "
+                   "updated since they registered. Authoritative for who is "
+                   "licensed in what discipline; NOT a current directory of where "
+                   "they practise - prefer the per-state aggregates over named "
+                   "rows. Individual providers loaded for MA and VT only. Applied "
+                   "Behaviour Analysis excluded (587,194 behaviour technicians "
+                   "work in autism services, not behavioural-health referral)."),
         "produces": "Provider, Taxonomy",
     },
     {

@@ -89,7 +89,7 @@ The graph is only as current as its slowest authoritative layer, and that layer 
 | Source | Publisher cadence | What actually moves |
 |---|---|---|
 | FindTreatment.gov | **annual** N-MHSS survey; monthly additions; weekly corrections | the weekly channel is **opt-in** — it fires only when a facility notifies SAMHSA |
-| NPPES | monthly full replacement | freshest layer: published 2026-08-10, covering NPIs to 2026-08-09 |
+| NPPES | monthly full replacement | freshest **file**, stalest **records** — 70.7% of loaded providers last updated over 3 years ago, and 50.9% never updated since they registered |
 | HRSA | file rebuilt daily | designations rarely change — 13% untouched in over 3 years, dates back to 1973 |
 | Synthea | not a feed | pinned by version + seed |
 
@@ -115,6 +115,11 @@ snapshots. Full detail in [`docs/schema.md`](docs/schema.md#data-currency).
   comparison.
 - **Service tags are survey answers** up to a year old, and they are what every
   referral query filters on.
+- **Provider addresses are mostly years out of date.** 70.7% of loaded NPPES
+  records were last updated over three years ago and half have never been updated
+  since the provider registered. NPPES is authoritative for *who is licensed in
+  what discipline*; it is not a current directory of where they practise. Prefer
+  the per-state aggregate counts over the named rows for anything load-bearing.
 - **Facility deduplication is exact-match** on name+address; a facility listed
   under two spellings appears twice. This is correct for multi-site organisations
   and wrong for typos.

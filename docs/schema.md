@@ -124,11 +124,32 @@ facilities inform SAMHSA of changes."* The systematic refresh is therefore yearl
 numbers may be fresher than service tags, and the service tags — `IPV`, languages,
 sliding-fee scale — are exactly what this graph filters on. Treat them as up to a year old.
 
-**NPPES.** Monthly full-replacement file, and the freshest layer here: the copy loaded was
-published 2026-08-10 covering NPIs through 2026-08-09. There is no incremental feed worth
-using at a monthly cadence. Same caveat as HRSA applies in principle — the file carries a
-per-record `Last Update Date`, so record-level staleness is measurable and has not been
-measured yet.
+**NPPES.** Monthly full-replacement file; the copy loaded was published 2026-08-10 covering
+NPIs through 2026-08-09. That makes it the freshest *file*.
+
+**At record level it is the stalest layer in the graph** — measured 2026-08-18 across the
+82,978 loaded providers, and worse than HRSA by a wide margin:
+
+| Last updated | providers | | HRSA, for comparison |
+|---|---:|---:|---:|
+| under 90 days | 3,510 | 4.2% | 8% |
+| 90–365 days | 7,445 | 9.0% | 73% |
+| 1–3 years | 13,385 | 16.1% | 6% |
+| **over 3 years** | **58,638** | **70.7%** | 13% |
+
+Range 2007-07-08 to 2026-08-09. The national picture across all 1,891,203
+behavioural-health providers is the same shape: **63.5% over three years old**.
+
+**Half the records have never been touched since the provider first registered.**
+`Last Update Date` equals `Provider Enumeration Date` for **42,217 of 82,978 (50.9%)`, and
+the median gap between the two is **0 days**.
+
+**Consequence for referral use.** A provider's practice address and phone number are only as
+good as their last update, and for most of them that was over three years ago. NPPES is
+authoritative for *who is licensed and in what discipline* — that does not go stale — but it
+should not be treated as a current directory of where someone actually practises. The
+per-state aggregate counts are the safer use; the named-clinician rows are indicative, not
+verified-current.
 
 **HRSA HPSA.** The daily rebuild gets you a fresh *file*, not fresh *facts*. Measured
 across the 13,836 designated mental-health rows in our copy:
