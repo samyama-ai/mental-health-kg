@@ -30,6 +30,7 @@ from pathlib import Path
 
 from samyama import SamyamaClient
 
+from etl.graph_utils import already_loaded, link_many_to_one, refuse_rerun, verify
 from etl.helpers import GRAPH, batch_create_nodes, read_csv
 
 # HRSA writes full state names; the supply layer keys State on USPS code.
@@ -55,8 +56,13 @@ STATE_CODE = {
 # Synthea writes "Worcester County", HRSA writes "Worcester". Without this the
 # two sources create separate County nodes and the patient -> shortage-area
 # traversal silently returns nothing -- it looks like an engine bug and is not.
+# " City" is deliberately NOT stripped. Maryland, Missouri and Virginia have
+# independent cities that are separate FIPS entities from the county of the same
+# name -- Baltimore City is not Baltimore County. Stripping it merged six pairs
+# and misattributed 262 HPSA rows across 66 designations. Synthea only ever
+# writes " County", so nothing needs it.
 _SUFFIXES = (" County", " Parish", " Borough", " Census Area", " Municipality",
-             " City and Borough", " City", " Municipio")
+             " City and Borough", " Municipio")
 
 
 def norm_county(name: str) -> str:
@@ -77,30 +83,30 @@ def _num(val, cast=float):
         return None
 
 
-def link_many_to_one(client, src_label, src_prop, src_keys,
-                     rel, tgt_label, tgt_prop, tgt_value, chunk=500):
-    """Link many source nodes to ONE target, two MATCH patterns per query.
-
-    Deliberately not helpers.batch_create_edges: that emits one pattern per
-    edge, and its cost grows with how many nodes already carry the matched
-    label -- it SIGKILLed the server at 3,500 Patient nodes.
-    """
-    for i in range(0, len(src_keys), chunk):
-        keys = ", ".join(f'"{k}"' for k in src_keys[i:i + chunk])
-        client.query(
-            f"MATCH (s:{src_label}) WHERE s.{src_prop} IN [{keys}] "
-            f"WITH s MATCH (t:{tgt_label}) WHERE t.{tgt_prop} = \"{tgt_value}\" "
-            f"CREATE (s)-[:{rel}]->(t)", GRAPH)
+LABELS = ["ShortageArea", "County"]
 
 
 def load_hpsa(client: SamyamaClient, csv_path: str) -> dict:
     counts: dict[str, int] = {}
     t0 = time.time()
 
+    # This loader CREATEs; it is not idempotent. Running it twice doubles the
+    # layer, which looks like a successful load until the counts are read.
+    existing = {lbl: already_loaded(client, lbl) for lbl in LABELS}
+    if any(existing.values()):
+        refuse_rerun(existing, "HRSA")
+
     rows = [r for r in read_csv(csv_path)
             if r.get("Discipline") == "Mental Health"
             and r.get("HPSA Status") == "Designated"]
     counts["rows_kept"] = len(rows)
+
+    unmapped = sorted({r["State"] for r in rows if r["State"] not in STATE_CODE})
+    if unmapped:
+        skipped = sum(1 for r in rows if r["State"] not in STATE_CODE)
+        print(f"  [skip] {skipped:,} rows in {len(unmapped)} unmapped "
+              f"jurisdictions: {', '.join(unmapped)}", flush=True)
+        counts["rows_skipped_unmapped_state"] = skipped
 
     for label, prop in [("ShortageArea", "hpsa_id"), ("County", "county_key")]:
         try:
@@ -188,8 +194,17 @@ def load_hpsa(client: SamyamaClient, csv_path: str) -> dict:
         n += len(pids)
     counts["IN_COUNTY"] = n
 
+    problems = verify(client, counts, {
+        "label:County": counts["counties"],
+        "label:ShortageArea": counts["shortage_areas"],
+        "IN_STATE": counts["IN_STATE"],
+        "COVERS": counts["COVERS"],
+        "IN_COUNTY": counts["IN_COUNTY"],
+    })
     counts["seconds"] = round(time.time() - t0, 1)
     print("\nHRSA shortage layer loaded", flush=True)
+    for p in problems:
+        print(f"  [MISMATCH] {p}", flush=True)
     for k, v in counts.items():
         print(f"  {k:16} {v:>10,}" if isinstance(v, int) else f"  {k:16} {v:>10}")
     return counts

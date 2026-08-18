@@ -37,11 +37,18 @@ exclusion query -> simulated demand -> the coverage gap -> federal shortage
 designations -> real clinical capacity -> a named clinician with a licence.
 
 ```bash
+docker rm -f samyama-mh 2>/dev/null                                 # always fresh
 docker run -d --name samyama-mh -p 18080:8080 \
-  public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0                       # server
+  public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0
+until curl -sf http://localhost:18080/api/status >/dev/null; do sleep 1; done
+
+# mental-health-full.sgsnap (~15 MB) is a RELEASE ASSET, not in this repo —
+# snapshots never go in git. Download it from Releases, or build the graph
+# with the loaders in etl/ and export your own.
 curl -X POST http://localhost:18080/api/snapshot/import \
-  -F "file=@snapshots/mental-health-full.sgsnap"                    # ~2.5s
-MH_URL=http://localhost:18080 python -m demo.demo                   # run live
+  -F "file=@mental-health-full.sgsnap"                              # ~2.5s
+
+MH_URL=http://localhost:18080 python -m demo.demo
 ```
 
 See [`demo/README.md`](demo/README.md) for re-recording, including the two
@@ -77,6 +84,7 @@ graph LR
         CO("Condition<br/>11")
     end
     S("State<br/>52")
+    DS("DataSource<br/>4<br/><i>provenance manifest,<br/>no edges</i>")
 
     F -- "OFFERS 1,417,479" --> SV
     F -- "SPEAKS 15,740" --> L
@@ -97,7 +105,11 @@ graph LR
 
 **13 node labels** -- Provider (82,978), Facility (17,254), ShortageArea (6,420),
 Patient (3,500), County (3,037), Service (313), Taxonomy (76), State (52),
-ServiceCategory (33), Language (24), Condition (11), DataSource (3), FacilityType (2)
+ServiceCategory (33), Language (24), Condition (11), DataSource (4), FacilityType (2)
+
+`DataSource` is a standalone provenance manifest with no edges: one node per
+source, carrying its fetch date, real refresh cadence and caveats, so a `.sgsnap`
+explains its own age without this repo travelling alongside it.
 
 **13 edge types** -- OFFERS, PRACTICES_IN, HAS_TAXONOMY, HAS_TYPE, LOCATED_IN, SPEAKS,
 COVERS, HAS_CONDITION, LIVES_IN, IN_COUNTY, HAS_PROVIDERS, IN_STATE, IN_CATEGORY

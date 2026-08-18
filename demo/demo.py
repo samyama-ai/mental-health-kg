@@ -92,11 +92,30 @@ def main() -> None:
     url = os.environ.get("MH_URL", "http://localhost:18080")
     client = SamyamaClient.connect(url)
 
+    # Fail loudly rather than walking nine steps against an empty graph and
+    # printing zeros that would read as findings.
+    try:
+        loaded = client.query("MATCH (f:Facility) RETURN count(f)", GRAPH).records[0][0]
+    except Exception as e:  # noqa: BLE001 - any transport failure means no server
+        raise SystemExit(
+            f"Cannot reach a Samyama server at {url}.\n"
+            f"  {type(e).__name__}: {str(e)[:100]}\n"
+            "Start one and import the snapshot — see demo/README.md.") from None
+    if not loaded:
+        raise SystemExit(
+            f"The graph at {url} is empty — import the snapshot first.\n"
+            "See demo/README.md.")
+    nodes = client.query("MATCH (n) RETURN count(n)", GRAPH).records[0][0]
+    edges = client.query("MATCH ()-[r]->() RETURN count(r)", GRAPH).records[0][0]
+    srcs = client.query("MATCH (d:DataSource) RETURN count(d)", GRAPH).records[0][0]
+
     console.print(Panel.fit(
         "[bold]Samyama · Mental Health Knowledge Graph[/bold]\n"
         '"Which help exists — for whom, in what language, at what price,\n'
         ' and is there anyone actually there to provide it?"\n'
-        "[dim]four sources · 113,703 nodes · 1,665,143 edges[/dim]",
+        # Read from the graph, not hardcoded: the panel used to state totals
+        # that would silently drift the moment a layer changed.
+        f"[dim]{srcs} sources · {nodes:,} nodes · {edges:,} edges[/dim]",
         border_style="cyan"))
     time.sleep(3.0)
 
@@ -106,7 +125,7 @@ def main() -> None:
     rows = client.query(
         "MATCH (d:DataSource) RETURN d.name, d.fetched_on, d.real_data, d.cadence",
         GRAPH).records
-    table([(n, f, "REAL" if r else "SYNTHETIC") for n, f, r, c in rows],
+    table([(n, f, "REAL" if r else "SYNTHETIC") for n, f, r, _ in rows],
           ["source", "fetched", "kind"], [20, 12, 10])
 
     # ---------------------------------------------------------------- 2
@@ -129,13 +148,20 @@ def main() -> None:
          f'(f)-[:OFFERS]->(c:Service) WHERE a.value = "{IPV}" AND b.value = "{SLIDING}" '
          f'AND c.value = "Spanish" AND f.state = "MA" RETURN count(f) AS n')
     run(client, q, "matching facilities in Massachusetts")
+    seen: set[str] = set()
     named = client.query(
         f'MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(b:Service), '
         f'(f)-[:OFFERS]->(c:Service) WHERE a.value = "{IPV}" AND b.value = "{SLIDING}" '
         f'AND c.value = "Spanish" AND f.state = "MA" '
         f'RETURN f.name, f.city, f.intake, f.phone LIMIT 4', GRAPH).records
-    table([(n, c, i or p or "—") for n, c, i, p in named],
-          ["facility", "city", "call"], [36, 13, 16])
+    # One row per facility. A site can match the three service patterns more
+    # than once, so without this the same name repeats.
+    deduped = []
+    for n, c, i, p in named:
+        if n not in seen:
+            seen.add(n)
+            deduped.append((n, c, i or p or "—"))
+    table(deduped, ["facility", "city", "call"], [36, 13, 16])
     say("named places with numbers — not one generic national hotline")
 
     # ---------------------------------------------------------------- 4
@@ -157,7 +183,10 @@ def main() -> None:
     run(client,
         'MATCH (p:Patient)-[:HAS_CONDITION]->(c:Condition) '
         'WHERE c.name = "Victim of intimate partner abuse (finding)" '
-        'RETURN count(p) AS n', "of them survivors of partner abuse")
+        'RETURN count(p) AS n', "of them survivors of partner abuse",
+        lambda v: f"{v:,}")
+    say("that is LIFETIME screening prevalence, not current need — CDC puts")
+    say("lifetime partner violence near 41% for women and 26% for men")
 
     # ---------------------------------------------------------------- 6
     step(6, "Which languages can Vermont actually serve?")
@@ -200,7 +229,13 @@ def main() -> None:
         f'MATCH (p:Provider)-[:HAS_TAXONOMY]->(t:Taxonomy), (p)-[:PRACTICES_IN]->(s:State) '
         f'WHERE t.code = "{PSYCHIATRY}" AND s.code = "VT" AND p.is_organization = false '
         f'RETURN p.name, p.city, p.licence LIMIT 4', GRAPH).records
-    table(rows, ["psychiatrist", "city", "licence"], [26, 13, 18])
+    # Licence numbers are masked. NPPES is public and these are real
+    # practitioners, but this gif is the README hero -- there is no reason to
+    # publish a named clinician's licence number to make the point that the
+    # graph holds one.
+    masked = [(n, c, (str(li)[:2] + "•" * max(0, len(str(li)) - 2)) if li else "—")
+              for n, c, li in rows]
+    table(masked, ["psychiatrist", "city", "licence"], [26, 13, 18])
 
     console.print()
     console.print(Panel.fit(
@@ -208,7 +243,8 @@ def main() -> None:
         "[/bold green]\n"
         "Supply from FindTreatment.gov · shortage designations from HRSA ·\n"
         "clinical capacity from NPPES · demand simulated with Synthea.\n"
-        "[dim]No survivor, session or transcript is stored anywhere in it.[/dim]",
+        "[dim]Public federal records only. No survivor, session or transcript\n"
+        "is stored anywhere in it.[/dim]",
         border_style="green"))
     time.sleep(3.0)
 

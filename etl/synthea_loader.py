@@ -29,6 +29,7 @@ from pathlib import Path
 
 from samyama import SamyamaClient
 
+from etl.graph_utils import link_many_to_one, refuse_rerun, verify
 from etl.helpers import GRAPH, batch_create_nodes, read_csv
 
 # Conditions worth modelling for a referral graph. Synthea emits ~200 distinct
@@ -58,7 +59,7 @@ STATES = {
     "New Jersey": "NJ", "Virginia": "VA", "Washington": "WA", "Arizona": "AZ",
     "Maryland": "MD", "Kentucky": "KY", "North Dakota": "ND", "Wisconsin": "WI",
     "Minnesota": "MN", "Colorado": "CO", "Alabama": "AL", "Louisiana": "LA",
-    "Oregon": "OR", "Oklahoma": "OK", "Connecticut ": "CT",
+    "Oregon": "OR", "Oklahoma": "OK",
 }
 
 
@@ -78,21 +79,7 @@ def _float(val):
         return None
 
 
-def _link(client, patient_ids, rel, tgt_label, tgt_prop, tgt_value, chunk=500):
-    """Attach many patients to ONE target node, set-wise.
-
-    helpers.batch_create_edges emits one MATCH pattern per edge -- 300+ patterns
-    in a single query. That does not scale with the number of nodes already
-    carrying the matched label: it survived 2,000 Patient nodes and killed the
-    server (SIGKILL, exit 137) at 3,500. Here the pattern count is fixed at two
-    regardless of batch size, and the WHERE ... IN list does the selection.
-    """
-    for i in range(0, len(patient_ids), chunk):
-        ids = ", ".join(f'"{p}"' for p in patient_ids[i:i + chunk])
-        client.query(
-            f"MATCH (p:Patient) WHERE p.patient_id IN [{ids}] "
-            f"WITH p MATCH (t:{tgt_label}) WHERE t.{tgt_prop} = \"{tgt_value}\" "
-            f"CREATE (p)-[:{rel}]->(t)", GRAPH)
+LABELS = ["Patient", "Condition"]
 
 
 def load_synthea(client: SamyamaClient, data_dir: str, cohort: str) -> dict:
@@ -100,6 +87,14 @@ def load_synthea(client: SamyamaClient, data_dir: str, cohort: str) -> dict:
     d = Path(data_dir)
     counts: dict[str, int] = {}
     t0 = time.time()
+
+    # Cohorts are additive by design (MA then VT), so an existing Patient layer
+    # is fine -- but the SAME cohort twice would duplicate it silently.
+    dup = client.query(
+        f'MATCH (p:Patient) WHERE p.cohort = "{cohort}" RETURN count(p)',
+        GRAPH).records
+    if dup and dup[0][0]:
+        refuse_rerun({f"Patient (cohort {cohort})": dup[0][0]}, "Synthea")
 
     for label, prop in [("Patient", "patient_id"), ("Condition", "code")]:
         try:
@@ -127,7 +122,7 @@ def load_synthea(client: SamyamaClient, data_dir: str, cohort: str) -> dict:
             "race": r.get("RACE", ""),
             "age": _age(r.get("BIRTHDATE", "")),
             "city": r.get("CITY", ""),
-            "state": STATES.get(r.get("STATE", ""), r.get("STATE", "")),
+            "state": STATES.get(r.get("STATE", "").strip(), ""),
             "zip": r.get("ZIP", ""),
             "county": r.get("COUNTY", ""),
             "latitude": _float(r.get("LAT")),
@@ -137,7 +132,8 @@ def load_synthea(client: SamyamaClient, data_dir: str, cohort: str) -> dict:
     batch_create_nodes(client, nodes, GRAPH)
     counts["patients"] = len(nodes)
     kept = {r["Id"] for r in patients}
-    ns = lambda i: f"{cohort}::{i}"
+    def ns(i):
+        return f"{cohort}::{i}"
 
     print("Phase 2/3: conditions ...", flush=True)
     rows = [r for r in read_csv(d / "conditions.csv")
@@ -165,22 +161,30 @@ def load_synthea(client: SamyamaClient, data_dir: str, cohort: str) -> dict:
     for pid, code in pairs:
         by_code.setdefault(code, []).append(ns(pid))
     for code, pids in by_code.items():
-        _link(client, pids, "HAS_CONDITION", "Condition", "code", code)
+        link_many_to_one(client, "Patient", "patient_id", pids,
+                         "HAS_CONDITION", "Condition", "code", code)
     counts["HAS_CONDITION"] = len(pairs)
 
     # LIVES_IN reuses the State nodes the supply layer created -- this edge is
     # the join between demand and supply.
     by_state: dict[str, list[str]] = {}
     for r in patients:
-        st = STATES.get(r.get("STATE", ""))
+        st = STATES.get(r.get("STATE", "").strip())
         if st:
             by_state.setdefault(st, []).append(ns(r["Id"]))
     for st, pids in by_state.items():
-        _link(client, pids, "LIVES_IN", "State", "code", st)
+        link_many_to_one(client, "Patient", "patient_id", pids,
+                         "LIVES_IN", "State", "code", st)
     counts["LIVES_IN"] = sum(len(v) for v in by_state.values())
 
+    problems = verify(client, counts, {
+        "HAS_CONDITION": counts["HAS_CONDITION"],
+        "LIVES_IN": counts["LIVES_IN"],
+    })
     counts["seconds"] = round(time.time() - t0, 1)
     print("\nSynthea demand layer loaded", flush=True)
+    for p in problems:
+        print(f"  [MISMATCH] {p}   (cumulative across cohorts)", flush=True)
     for k, v in counts.items():
         print(f"  {k:16} {v:>10,}" if isinstance(v, int) else f"  {k:16} {v:>10}")
     return counts

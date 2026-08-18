@@ -48,6 +48,22 @@ SOURCES = [
         "produces": "ShortageArea, County",
     },
     {
+        "name": "NPPES",
+        "publisher": "CMS / National Plan and Provider Enumeration System",
+        "url": "https://download.cms.gov/nppes/NPI_Files.html",
+        "licence": "US federal government work - public domain",
+        "real_data": True,
+        "fetched_on": "2026-08-13",
+        "cadence": "monthly full-replacement file; no usable incremental feed",
+        "caveat": ("File published 2026-08-10 covering NPIs through 2026-08-09 - "
+                   "the freshest layer here. Individual providers are loaded for "
+                   "MA and VT only; every other state has the national aggregate "
+                   "count but no named clinicians. Applied Behaviour Analysis "
+                   "taxonomies are excluded (587,194 behaviour technicians work "
+                   "in autism services, not behavioural-health referral)."),
+        "produces": "Provider, Taxonomy",
+    },
+    {
         "name": "Synthea",
         "publisher": "The MITRE Corporation",
         "url": "https://github.com/synthetichealth/synthea",
@@ -64,20 +80,26 @@ SOURCES = [
 
 
 def stamp(client: SamyamaClient) -> int:
+    """Rewrite the manifest from scratch. Idempotent, and updatable.
+
+    An earlier version skipped any source already present, which meant a data
+    refresh left a stale `fetched_on` in the graph with no warning -- the one
+    thing a provenance manifest must never do. The nodes are three in number and
+    carry no edges, so replacing them wholesale is both cheap and correct.
+    """
     try:
         client.query("CREATE INDEX ON :DataSource(name)", GRAPH)
     except Exception as e:  # noqa: BLE001
         print(f"  [index] skipped - {e}", flush=True)
-    existing = {r[0] for r in client.query(
-        "MATCH (d:DataSource) RETURN d.name", GRAPH).records}
-    fresh = [s for s in SOURCES if s["name"] not in existing]
-    batch_create_nodes(client, [("DataSource", s) for s in fresh], GRAPH)
-    for s in fresh:
+    before = len(client.query("MATCH (d:DataSource) RETURN d.name", GRAPH).records)
+    if before:
+        client.query("MATCH (d:DataSource) DETACH DELETE d", GRAPH)
+        print(f"  refreshed {before} existing manifest node(s)")
+    batch_create_nodes(client, [("DataSource", s) for s in SOURCES], GRAPH)
+    for s in SOURCES:
         print(f"  + {s['name']:20} fetched {s['fetched_on']}  "
               f"{'real' if s['real_data'] else 'SYNTHETIC'}")
-    if len(fresh) < len(SOURCES):
-        print(f"  ({len(SOURCES) - len(fresh)} already present, left alone)")
-    return len(fresh)
+    return len(SOURCES)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -85,7 +107,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--url", default=None, help="Server URL (omit for embedded)")
     args = ap.parse_args(argv)
     client = SamyamaClient.connect(args.url) if args.url else SamyamaClient.embedded()
-    stamp(client)
+    n = stamp(client)
+    print(f"\n{n} source(s) recorded")
 
 
 if __name__ == "__main__":

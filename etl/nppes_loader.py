@@ -13,9 +13,10 @@ exactly that -- name, practice address, taxonomy, licence number.
     python -m etl.nppes_loader --zip data/nppes.zip --taxonomy data/bh_taxonomy.json \
       --url http://localhost:18080
 
-Filtering happens while streaming the zip -- the file is never fully unpacked
-and never fully held in memory. Only rows whose taxonomy is behavioural health
-are kept, which is roughly a tenth of the register.
+The zip is streamed, never unpacked -- the 11.6 GB CSV is read a row at a time.
+The rows that survive the taxonomy filter ARE accumulated in memory before the
+write, which is why `--states` matters: 83k providers is a few hundred MB, and
+the full 2.6M is not something to hold.
 
 Taxonomy selection is deliberately NOT "Grouping == Behavioral Health & Social
 Service Providers". Psychiatrists sit under Allopathic & Osteopathic Physicians,
@@ -41,26 +42,11 @@ from collections import Counter
 
 from samyama import SamyamaClient
 
-from etl.helpers import GRAPH, batch_create_edges, batch_create_nodes
+from etl.graph_utils import already_loaded, cq, link_many_to_one, refuse_rerun, verify
+from etl.helpers import GRAPH, batch_create_nodes
 
 # NPPES ships up to 15 taxonomy slots per provider.
 TAX_SLOTS = range(1, 16)
-
-
-def link_many_to_one(client, src_label, src_prop, src_keys,
-                     rel, tgt_label, tgt_prop, tgt_value, chunk=500):
-    """Two MATCH patterns per query, regardless of batch size.
-
-    Not helpers.batch_create_edges: that emits one pattern per edge and its cost
-    grows with how many nodes already carry the label. It SIGKILLed the server
-    at 3,500 nodes; NPPES adds far more than that.
-    """
-    for i in range(0, len(src_keys), chunk):
-        keys = ", ".join(f'"{k}"' for k in src_keys[i:i + chunk])
-        client.query(
-            f"MATCH (s:{src_label}) WHERE s.{src_prop} IN [{keys}] "
-            f"WITH s MATCH (t:{tgt_label}) WHERE t.{tgt_prop} = \"{tgt_value}\" "
-            f"CREATE (s)-[:{rel}]->(t)", GRAPH)
 
 
 def _esc(v: str) -> str:
@@ -112,9 +98,14 @@ def load_nppes(client: SamyamaClient, zip_path: str, taxonomy_path: str,
     hours. The scan cost falls with the node count, which is what makes the
     two-grain split work rather than being a compromise.
     """
-    wanted = json.load(open(taxonomy_path))
+    with open(taxonomy_path) as fh:
+        wanted = json.load(fh)
     counts: dict[str, int] = {}
     t0 = time.time()
+
+    existing = {lbl: already_loaded(client, lbl) for lbl in ("Provider", "Taxonomy")}
+    if any(existing.values()):
+        refuse_rerun(existing, "NPPES")
 
     for label, prop in [("Provider", "npi"), ("Taxonomy", "code")]:
         try:
@@ -189,15 +180,29 @@ def load_nppes(client: SamyamaClient, zip_path: str, taxonomy_path: str,
     # helpers.batch_create_edges is safe here -- its cost problem is driven by
     # the cardinality of the matched labels, not by the number of edges.
     print("Phase 3/3b: national aggregate ...", flush=True)
-    batch_create_edges(client, [
-        ("State", f'code: "{st}"', "HAS_PROVIDERS",
-         "Taxonomy", f'code: "{tax}"', {"count": c})
-        for (st, tax), c in sorted(agg.items())], GRAPH)
+    # One query per (state, taxonomy) pair. helpers.batch_create_edges was used
+    # here first and silently wrote 236 of 3,536 edges: a batch spanning many
+    # distinct State/Taxonomy pairs produces 128+ MATCH patterns in one query
+    # and most of them are dropped without an error.
+    for (st, tax), c in sorted(agg.items()):
+        client.query(
+            f"MATCH (s:State) WHERE s.code = {cq(st)} WITH s "
+            f"MATCH (t:Taxonomy) WHERE t.code = {cq(tax)} "
+            f"CREATE (s)-[:HAS_PROVIDERS {{count: {int(c)}}}]->(t)", GRAPH)
     counts["HAS_PROVIDERS"] = len(agg)
     counts["providers_counted_nationally"] = sum(agg.values())
 
+    problems = verify(client, counts, {
+        "label:Provider": counts["providers"],
+        "label:Taxonomy": counts["taxonomies"],
+        "PRACTICES_IN": counts["PRACTICES_IN"],
+        "HAS_TAXONOMY": counts["HAS_TAXONOMY"],
+        "HAS_PROVIDERS": counts["HAS_PROVIDERS"],
+    })
     counts["seconds"] = round(time.time() - t0, 1)
     print("\nNPPES provider layer loaded", flush=True)
+    for pr in problems:
+        print(f"  [MISMATCH] {pr}", flush=True)
     for k, v in counts.items():
         print(f"  {k:16} {v:>10,}" if isinstance(v, int) else f"  {k:16} {v:>10}")
     return counts
@@ -208,9 +213,21 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--zip", required=True, help="NPPES data dissemination zip")
     ap.add_argument("--taxonomy", required=True, help="bh_taxonomy.json")
     ap.add_argument("--limit", type=int, default=None, help="Cap rows read (testing)")
-    ap.add_argument("--states", default=None, help="Comma-separated state codes")
+    ap.add_argument("--states", default=None,
+                    help="Comma-separated state codes for individual providers. "
+                         "Omitting this loads ALL 2.6M nationally, which takes "
+                         "90+ hours; --all-states is required to mean it.")
+    ap.add_argument("--all-states", action="store_true",
+                    help="Really load every individual provider nationally")
     ap.add_argument("--url", default=None, help="Server URL (omit for embedded)")
     args = ap.parse_args(argv)
+    if not args.states and not args.all_states:
+        raise SystemExit(
+            "Refusing to run without --states.\n"
+            "The national aggregate is written either way. Loading INDIVIDUAL\n"
+            "providers for every state means 2,610,822 nodes and ~5.2M edges,\n"
+            "which measured 90+ hours because `WHERE npi IN [...]` scans every\n"
+            "Provider node. Use e.g. --states MA,VT, or --all-states to mean it.")
     client = SamyamaClient.connect(args.url) if args.url else SamyamaClient.embedded()
     load_nppes(client, args.zip, args.taxonomy, args.limit,
                set(args.states.split(",")) if args.states else None)

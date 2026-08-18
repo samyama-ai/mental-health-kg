@@ -202,6 +202,20 @@ SDK 0.6.1**, so any KG needing "matching X but not Y" must run against a server.
   insertion order and looks perfectly plausible. It shipped into a demo recording
   before it was caught. Sort in the form that matches the value, or use
   `WITH … ORDER BY …` which works for both.
+- **`DETACH DELETE` leaves the property index dirty, and later writes then attach
+  edges to unrelated nodes.** Found 2026-08-14 while building a `--replace` path.
+  Reads are unaffected: `WHERE county_key IN [14 VT keys]` returns exactly the
+  right 14 rows. But the same predicate followed by `CREATE` — in any of three
+  query shapes — over-creates. Reloading HRSA into a wiped graph produced **5,197
+  `IN_STATE` edges for 3,043 counties**, and attached five of them to
+  `LA::Tensas`, a Louisiana county that was never in the key list. The identical
+  load on a **fresh container is exact** (`COVERS` 7,842, `IN_COUNTY` 3,500).
+
+  This is the worst defect found so far, because it is silent, it corrupts only
+  writes, and the natural way to fix a bad load — delete and reload — is what
+  triggers it. There is deliberately **no `--replace` in any loader**. Start a
+  fresh container and import a snapshot instead; that takes ~3 seconds.
+
 - **`batch_create_edges` from the shared template does not scale.** It emits one `MATCH`
   pattern per edge — 300+ per query — and its cost grows with the number of nodes already
   carrying the matched label. It SIGKILLed the server (exit 137, which reads as host OOM
