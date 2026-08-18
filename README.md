@@ -42,9 +42,10 @@ docker run -d --name samyama-mh -p 18080:8080 \
   public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0
 until curl -sf http://localhost:18080/api/status >/dev/null; do sleep 1; done
 
-# mental-health-full.sgsnap (~15 MB) is a RELEASE ASSET, not in this repo —
-# snapshots never go in git. Download it from Releases, or build the graph
-# with the loaders in etl/ and export your own.
+# mental-health-full.sgsnap (~15 MB) is a release asset, not in this repo.
+# Snapshots ship on the engine repo in the shared kg-snapshots-vN train:
+#   github.com/samyama-ai/samyama-graph/releases/download/kg-snapshots-vN/
+# NOT YET PUBLISHED — build with the loaders in etl/ and export your own.
 curl -X POST http://localhost:18080/api/snapshot/import \
   -F "file=@mental-health-full.sgsnap"                              # ~2.5s
 

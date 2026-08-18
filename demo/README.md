@@ -24,7 +24,16 @@ four layers loaded.
 ### If you have the snapshot
 
 `mental-health-full.sgsnap` is ~15 MB and is **not in this repo** — snapshots ship
-as release assets, never in git. Download it from the repo's Releases page, then:
+as release assets on the engine repo, in the shared `kg-snapshots-vN` train:
+
+```
+https://github.com/samyama-ai/samyama-graph/releases/download/kg-snapshots-vN/mental-health-full.sgsnap
+```
+
+**Not yet published** — it is queued for the next `kg-snapshots` cut. Until then,
+build from source (below) or ask for a copy.
+
+Once you have it:
 
 ```bash
 docker run -d --name samyama-mh -p 18080:8080 \

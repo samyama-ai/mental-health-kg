@@ -129,9 +129,17 @@ snapshots. Full detail in [`docs/schema.md`](docs/schema.md#data-currency).
 ## Reproducing it
 
 Raw data is **not** checked into this repository — see `.gitignore`. Each loader
-documents its source URL and the exact fetch command. The snapshot is published as
-a release asset rather than committed, because a 15 MB binary does not belong in
-git history.
+documents its source URL and the exact fetch command.
+
+The snapshot is distributed as a release asset rather than committed, because a
+15 MB binary does not belong in git history. It goes on the engine repo in the
+shared `kg-snapshots-vN` train, the same route the other KGs use:
+
+```
+https://github.com/samyama-ai/samyama-graph/releases/download/kg-snapshots-vN/mental-health-full.sgsnap
+```
+
+**Not yet published** — queued for the next cut. Build from source until then.
 
 ```bash
 docker run -d --name samyama-mh -p 18080:8080 \
