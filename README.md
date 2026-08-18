@@ -123,8 +123,10 @@ Demand is simulated with [Synthea](https://github.com/synthetichealth/synthea) (
 person seeking help.** Refresh cadences differ sharply and matter; see
 [`docs/schema.md`](docs/schema.md#data-currency).
 
-See [`schema/mental_health_kg.cypher`](schema/mental_health_kg.cypher) for constraints and
-[`docs/schema.md`](docs/schema.md) for design decisions, sources and deferred layers.
+See [`DATASET_CARD.md`](DATASET_CARD.md) for sources, licences, what is synthetic,
+currency and known limitations · [`benchmarks/README.md`](benchmarks/README.md) for
+measured performance · [`schema/mental_health_kg.cypher`](schema/mental_health_kg.cypher)
+for constraints · [`docs/schema.md`](docs/schema.md) for design decisions.
 
 ## Quick Start
 
@@ -140,12 +142,13 @@ pytest                               # run tests
 
 ## Structure
 ```
-etl/          # downloaders + graph loader
+etl/          # downloaders + graph loaders (one per source)
 schema/       # cypher schema / ontology
 mcp_server/   # MCP server exposing the KG
 demo/         # narrated demo (cast + gif)
-benchmarks/   # benchmark queries
+benchmarks/   # benchmark.py + measured results
 docs/         # design + source notes
+DATASET_CARD.md  # sources, licences, limitations
 tests/        # pytest
 pyproject.toml
 ```
