@@ -51,13 +51,21 @@ scale the template does not merely slow down, it fails:
 
 | Observed | Template behaviour |
 |---|---|
-| 3,500 `Patient` nodes | **SIGKILL, exit 137** — reads as host OOM, is not |
-| 3,536 `State`/`Taxonomy` pairs in one batch | silently wrote **236 of 3,536** edges, no error |
+| 3,500 `Patient` nodes | server killed, **exit 137** |
 | 2.6M `Provider` nodes | ~16 edges/sec → **90+ hours** for the NPPES layer |
 
 The set-based form is why the NPPES layer loads in 21 minutes instead of not at
-all. Both failure modes are silent, which is why `graph_utils.verify()` now counts
-what was actually written rather than what was intended.
+all. Reported upstream as
+[samyama-graph#19](https://git.samyama.ai/Samyama.ai/samyama-graph/issues/19).
+
+*Correction, 2026-08-18: this table previously also claimed the template silently
+wrote 236 of 3,536 edges. That does not reproduce — a clean test writes 50, 150 and
+300 patterns per query correctly, just slowly. The original observation could not
+be trusted because the engine ignores the `graph` parameter
+([#15](https://git.samyama.ai/Samyama.ai/samyama-graph/issues/15)), so supposedly
+separate test graphs were one shared graph. `graph_utils.verify()` remains worth
+having — it caught a real, explainable shortfall in `HAS_PROVIDERS` — but it was
+not catching silent partial writes, because there were none.*
 
 ## Snapshot round-trip
 

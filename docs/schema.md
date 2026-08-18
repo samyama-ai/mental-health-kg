@@ -202,21 +202,26 @@ SDK 0.6.1**, so any KG needing "matching X but not Y" must run against a server.
   insertion order and looks perfectly plausible. It shipped into a demo recording
   before it was caught. Sort in the form that matches the value, or use
   `WITH … ORDER BY …` which works for both.
-- **`DETACH DELETE` leaves the property index dirty, and later writes then attach
-  edges to unrelated nodes.** Found 2026-08-14 while building a `--replace` path.
-  Reads are unaffected: `WHERE county_key IN [14 VT keys]` returns exactly the
-  right 14 rows. But the same predicate followed by `CREATE` — in any of three
-  query shapes — over-creates. Reloading HRSA into a wiped graph produced **5,197
-  `IN_STATE` edges for 3,043 counties**, and attached five of them to
-  `LA::Tensas`, a Louisiana county that was never in the key list. The identical
-  load on a **fresh container is exact** (`COVERS` 7,842, `IN_COUNTY` 3,500).
+- **RETRACTED 2026-08-18 — the "DETACH DELETE corrupts the property index" claim.**
+  This section previously reported that deleting a layer and reloading it attached
+  edges to unrelated nodes, citing 5,197 `IN_STATE` edges for 3,043 counties. **It
+  does not reproduce.** On a fresh container, delete-and-reload is exact, and a
+  3,000-node reproduction produced correct results.
 
-  This is the worst defect found so far, because it is silent, it corrupts only
-  writes, and the natural way to fix a bad load — delete and reload — is what
-  triggers it. There is deliberately **no `--replace` in any loader**. Start a
-  fresh container and import a snapshot instead; that takes ~3 seconds.
+  The original observation was contaminated by a different, real defect: **the
+  engine ignores the `graph` parameter**, so what looked like isolated test graphs
+  were one shared graph accumulating data across runs
+  ([samyama-graph#15](https://git.samyama.ai/Samyama.ai/samyama-graph/issues/15)).
+  Any measurement that assumed graph isolation — including the "236 of 3,536 edges
+  written silently" claim also previously recorded here — has to be treated as
+  unreliable.
 
-- **`batch_create_edges` from the shared template does not scale.** It emits one `MATCH`
+  What survives: loaders still refuse to run against a non-empty layer, because
+  they use `CREATE` and re-running genuinely does duplicate. Starting from a fresh
+  container and importing a snapshot (~4 s) remains the recommended route — but
+  because it is simple and fast, not because in-place deletion is unsafe.
+
+- **`batch_create_edges` from the shared template does not scale.**- **`batch_create_edges` from the shared template does not scale.** It emits one `MATCH`
   pattern per edge — 300+ per query — and its cost grows with the number of nodes already
   carrying the matched label. It SIGKILLed the server (exit 137, which reads as host OOM
   and is not) at 3,500 `Patient` nodes, and silently created only 236 of 3,536 edges when

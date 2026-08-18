@@ -22,10 +22,14 @@ reporting the length of its input list. The HRSA loader reported
 `IN_STATE = 3,037` while the graph held 3,023: fourteen counties whose state was
 missing produced no edge, and nothing noticed. Counts now come from the graph.
 
-**refuse_rerun() — no in-place replacement.** DETACH DELETE leaves the property
-index dirty on this engine, and later IN-list writes then attach edges to nodes
-that were never in the key list. Reloading HRSA into a wiped graph produced 5,197
-IN_STATE edges for 3,043 counties. The same load on a fresh container is exact.
+**refuse_rerun() — no in-place replacement.** These loaders use CREATE, so a second
+run duplicates a layer, and it looks like a successful load until the counts are
+read. Recreating the container and importing a snapshot takes about four seconds,
+which is faster and simpler than deleting in place.
+
+(An earlier version of this note claimed DETACH DELETE corrupted the property
+index. That does not reproduce and has been retracted — the evidence was
+contaminated by the engine ignoring the `graph` parameter, samyama-graph#15.)
 """
 
 from __future__ import annotations
@@ -102,15 +106,12 @@ def already_loaded(client, label, graph=GRAPH) -> int:
 def refuse_rerun(existing: dict, layer: str) -> None:
     """Stop, and say why in-place replacement is not offered.
 
-    DETACH DELETE removes the nodes but leaves the property index dirty, and a
-    later `WHERE key IN [...] ... CREATE` then matches phantom entries: reloading
-    HRSA into a wiped graph produced 5,197 IN_STATE edges for 3,043 counties, and
-    attached 5 of them to a Louisiana county that was never in the key list. The
-    same load on a FRESH container is exact. Reads are unaffected -- the IN list
-    returns the right 14 rows -- so this only corrupts writes, silently.
+    These loaders CREATE rather than MERGE, so a second run duplicates the layer
+    and it looks like a successful load until the counts are read.
 
-    There is therefore no --replace. Start a fresh container and import a
-    snapshot; it takes about three seconds.
+    No --replace is offered because it is not needed: recreating the container and
+    importing a snapshot takes ~4s for 1.67M edges, which is faster than deleting
+    in place and leaves no room for a partial wipe.
     """
     raise SystemExit(
         f"Refusing to run: the graph already holds "
