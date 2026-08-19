@@ -81,6 +81,16 @@ def stream_providers(zip_path: str, wanted: dict, limit: int | None = None):
                     yield row, tax
 
 
+# NPPES carries practice addresses worldwide, so a two-character state field is
+# not by itself a US state: ON, BC, QC and AB appear for Canadian addresses and
+# score a state code that no :State node will ever match. Counting them inflates
+# the aggregate and writes nothing.
+US_STATE_CODES = frozenset((
+    "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS "
+    "MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI "
+    "WY PR VI GU AS MP AA AE AP"
+).split())
+
 def load_nppes(client: SamyamaClient, zip_path: str, taxonomy_path: str,
                limit: int | None = None, states: set[str] | None = None) -> dict:
     """Load at two grains in a single pass over the 11.6 GB file.
@@ -124,10 +134,9 @@ def load_nppes(client: SamyamaClient, zip_path: str, taxonomy_path: str,
     print("Phase 2/3: streaming providers ...", flush=True)
     nodes, by_state, by_tax = [], {}, {}
     agg: Counter = Counter()          # (state, taxonomy) -> count, ALL states
-    seen = Counter()
     for row, tax in stream_providers(zip_path, wanted, limit):
         st = _esc(row.get("Provider Business Practice Location Address State Name"))
-        if len(st) == 2:
+        if st in US_STATE_CODES:
             agg[(st, tax)] += 1
         if states and st not in states:
             continue                  # aggregate already counted; skip the node
@@ -155,7 +164,6 @@ def load_nppes(client: SamyamaClient, zip_path: str, taxonomy_path: str,
         }))
         by_state.setdefault(st, []).append(npi)
         by_tax.setdefault(tax, []).append(npi)
-        seen[st] += 1
         if len(nodes) % 50000 == 0:
             print(f"    {len(nodes):,} kept ...", flush=True)
     batch_create_nodes(client, nodes, GRAPH)
@@ -180,17 +188,25 @@ def load_nppes(client: SamyamaClient, zip_path: str, taxonomy_path: str,
     # helpers.batch_create_edges is safe here -- its cost problem is driven by
     # the cardinality of the matched labels, not by the number of edges.
     print("Phase 3/3b: national aggregate ...", flush=True)
-    # One query per (state, taxonomy) pair. helpers.batch_create_edges was used
-    # here first and silently wrote 236 of 3,536 edges: a batch spanning many
-    # distinct State/Taxonomy pairs produces 128+ MATCH patterns in one query
-    # and most of them are dropped without an error.
+    # One query per (state, taxonomy) pair rather than helpers.batch_create_edges,
+    # which emits one MATCH pattern per edge: a batch spanning many distinct
+    # State/Taxonomy pairs becomes a 128+ pattern query, and at this scale that
+    # is where the template stops being usable.
+    #
+    # Pairs whose state has no :State node write nothing, so the intended count
+    # is the writable subset, not len(agg).
+    known = {r[0] for r in client.query("MATCH (s:State) RETURN s.code", GRAPH).records}
     for (st, tax), c in sorted(agg.items()):
         client.query(
             f"MATCH (s:State) WHERE s.code = {cq(st)} WITH s "
             f"MATCH (t:Taxonomy) WHERE t.code = {cq(tax)} "
             f"CREATE (s)-[:HAS_PROVIDERS {{count: {int(c)}}}]->(t)", GRAPH)
-    counts["HAS_PROVIDERS"] = len(agg)
+    counts["HAS_PROVIDERS"] = sum(1 for (st, _) in agg if st in known)
     counts["providers_counted_nationally"] = sum(agg.values())
+    unwritable = sorted({st for (st, _) in agg if st not in known})
+    if unwritable:
+        print(f"  [note] no :State node for {', '.join(unwritable)} -- "
+              f"their aggregate pairs are counted but not linked", flush=True)
 
     problems = verify(client, counts, {
         "label:Provider": counts["providers"],

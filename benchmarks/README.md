@@ -8,29 +8,31 @@ MH_URL=http://localhost:18080 python -m benchmarks.benchmark
 MH_URL=http://localhost:18080 python -m benchmarks.benchmark --markdown
 ```
 
-Measured 2026-08-18 against **113,710 nodes / 1,665,153 edges** — the full
+Measured 2026-08-19 against **113,710 nodes / 1,665,153 edges** — the full
 four-source graph — on `samyama-graph:1.1.0` (binary reports 1.7.0), single
 container, no tuning.
 
 ## Query latency
 
-7 runs each, first discarded as cache warm-up.
+20 runs each, first discarded as cache warm-up. p95 is nearest-rank; an earlier
+table reported it over 7 runs with an index that actually landed on the 86th
+percentile, so those tail figures were optimistic and are superseded here.
 
 | Query | median | p95 |
 |---|---:|---:|
-| count facilities | **0.5 ms** | 0.5 ms |
-| aggregate — psychiatrists by state | **2.2 ms** | 2.7 ms |
-| national scan — services by facility count | **12.3 ms** | 12.7 ms |
-| **referral — 3 services + state** | **43.2 ms** | 48.0 ms |
-| **exclusion — OPTIONAL MATCH + IS NULL** | **42.5 ms** | 43.2 ms |
-| cross-source — survivors in shortage counties | **63.8 ms** | 67.0 ms |
+| count facilities | **0.3 ms** | 0.5 ms |
+| aggregate — psychiatrists by state | **2.2 ms** | 2.4 ms |
+| national scan — services by facility count | **9.0 ms** | 10.9 ms |
+| **referral — 3 services + state** | **46.6 ms** | 53.8 ms |
+| **exclusion — OPTIONAL MATCH + IS NULL** | **47.9 ms** | 56.7 ms |
+| cross-source — survivors in shortage counties | **68.0 ms** | 85.0 ms |
 
 **Why this matters.** The referral query is the one the graph exists to answer,
 and it joins three service constraints plus a state filter across 1.42M `OFFERS`
-edges. At **43 ms** it is ~2% of a 1.5–2 s conversational turn budget, so a
-runtime lookup is affordable. The cross-source query — synthetic population joined
-to counties joined to federal shortage designations — is the most expensive at
-64 ms and still well inside budget.
+edges. At a **47 ms** median it is 2–3% of a 1.5–2 s conversational turn budget,
+so a runtime lookup is affordable. The cross-source query — synthetic population
+joined to counties joined to federal shortage designations — is the most expensive
+at 68 ms median / 85 ms p95, and still well inside budget.
 
 ## Edge-write throughput — the before/after
 
@@ -43,8 +45,8 @@ Same 2,000 edges, same graph:
 
 | Path | edges | seconds | edges/sec | |
 |---|---:|---:|---:|---|
-| `helpers.batch_create_edges` (template) | 2,000 | 5.0 | 404 | baseline |
-| `graph_utils.link_many_to_one` (set-based) | 2,000 | 0.7 | **2,863** | **7.1×** |
+| `helpers.batch_create_edges` (template) | 2,000 | 5.0 | 398 | baseline |
+| `graph_utils.link_many_to_one` (set-based) | 2,000 | 0.6 | **3,220** | **8.1×** |
 
 **2,000 is deliberately modest — it measures the slope, not the cliff.** At real
 scale the template does not merely slow down, it fails:
@@ -76,9 +78,8 @@ not catching silent partial writes, because there were none.*
 
 **Import is the number that matters.** It is how anyone else obtains this graph,
 and at 4 seconds for 1.67M edges it is also the reason no loader offers an
-in-place `--replace`: recreating a container and re-importing is faster and
-correct, where deleting in place corrupts the property index (see *Engine defects*
-in [`../docs/schema.md`](../docs/schema.md)).
+in-place `--replace`: recreating a container and re-importing is simply faster
+than deleting a layer in place, and leaves no room for a half-finished wipe.
 
 ## Load times, for reference
 

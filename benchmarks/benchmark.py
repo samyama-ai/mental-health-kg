@@ -22,6 +22,7 @@ graph.
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import statistics
 import time
@@ -62,8 +63,16 @@ QUERIES = [
 ]
 
 
-def timed(fn, runs: int = 7) -> tuple[float, float]:
-    """Return (median ms, p95 ms). First run discarded — it warms the cache."""
+def timed(fn, runs: int = 20) -> tuple[float, float]:
+    """Return (median ms, p95 ms). First run discarded — it warms the cache.
+
+    p95 is the nearest-rank order statistic: ceil(0.95 * n) - 1 as a 0-based
+    index. An earlier form used int(0.95 * n) - 1, which at runs=7 selected
+    index 5 of 7 — the 86th percentile — and so under-reported the tail.
+
+    20 runs, not 7: at n=7 the nearest-rank p95 is just the maximum, so the
+    column would have been a slowest-of-seven wearing a percentile's name.
+    """
     fn()
     ms = []
     for _ in range(runs):
@@ -71,7 +80,7 @@ def timed(fn, runs: int = 7) -> tuple[float, float]:
         fn()
         ms.append((time.perf_counter() - t) * 1000)
     ms.sort()
-    return statistics.median(ms), ms[int(len(ms) * 0.95) - 1 if len(ms) > 1 else 0]
+    return statistics.median(ms), ms[math.ceil(len(ms) * 0.95) - 1]
 
 
 def bench_queries(client) -> list[tuple]:
@@ -95,25 +104,29 @@ def bench_edge_writes(client, n: int = 2000) -> list[tuple]:
     keys = list(dict.fromkeys(keys))
     out = []
 
-    client.query("MATCH ()-[r:_BENCH]->() DELETE r", GRAPH)
-    t = time.perf_counter()
-    batch_create_edges(client, [
-        ("County", f'county_key: "{k}"', "_BENCH", "State", 'code: "MA"', None)
-        for k in keys], GRAPH)
-    dt = time.perf_counter() - t
-    made = count_edges(client, "_BENCH")
-    out.append(("helpers.batch_create_edges (template)", len(keys), made, dt,
-                made / dt if dt else 0))
+    try:
+        client.query("MATCH ()-[r:_BENCH]->() DELETE r", GRAPH)
+        t = time.perf_counter()
+        batch_create_edges(client, [
+            ("County", f'county_key: "{k}"', "_BENCH", "State", 'code: "MA"', None)
+            for k in keys], GRAPH)
+        dt = time.perf_counter() - t
+        made = count_edges(client, "_BENCH")
+        out.append(("helpers.batch_create_edges (template)", len(keys), made, dt,
+                    made / dt if dt else 0))
 
-    client.query("MATCH ()-[r:_BENCH]->() DELETE r", GRAPH)
-    t = time.perf_counter()
-    link_many_to_one(client, "County", "county_key", keys, "_BENCH", "State", "code", "MA")
-    dt = time.perf_counter() - t
-    made = count_edges(client, "_BENCH")
-    out.append(("graph_utils.link_many_to_one (set-based)", len(keys), made, dt,
-                made / dt if dt else 0))
-
-    client.query("MATCH ()-[r:_BENCH]->() DELETE r", GRAPH)
+        client.query("MATCH ()-[r:_BENCH]->() DELETE r", GRAPH)
+        t = time.perf_counter()
+        link_many_to_one(client, "County", "county_key", keys, "_BENCH", "State",
+                         "code", "MA")
+        dt = time.perf_counter() - t
+        made = count_edges(client, "_BENCH")
+        out.append(("graph_utils.link_many_to_one (set-based)", len(keys), made, dt,
+                    made / dt if dt else 0))
+    finally:
+        # _BENCH edges are scaffolding. Leaving them behind on an exception would
+        # pollute the graph the next run measures against.
+        client.query("MATCH ()-[r:_BENCH]->() DELETE r", GRAPH)
     return out
 
 
@@ -146,18 +159,28 @@ def main() -> None:
 
     print()
     wr = bench_edge_writes(client)
-    base = wr[0][4] or 1
+    # A zero baseline means the template run wrote nothing. Coercing it to 1 would
+    # turn that failure into a spectacular-looking speedup, so report it as absent.
+    base = wr[0][4] if wr[0][4] else None
+
+    def ratio(rate: float) -> str:
+        return f"{rate / base:.1f}×" if base else "n/a"
+
     if args.markdown:
         print("| Edge-write path | edges | seconds | edges/sec | vs template |")
         print("|---|---:|---:|---:|---:|")
         for n, want, made, dt, rate in wr:
-            print(f"| {n} | {made:,} | {dt:.1f} | {rate:,.0f} | {rate/base:.1f}× |")
+            note = "" if made == want else f" (wrote {made:,} of {want:,})"
+            print(f"| {n}{note} | {made:,} | {dt:.1f} | {rate:,.0f} | {ratio(rate)} |")
     else:
         print(f"{'EDGE-WRITE THROUGHPUT':46} {'edges':>8} {'secs':>7} {'edges/s':>9}")
         for n, want, made, dt, rate in wr:
             flag = "" if made == want else f"  <-- WROTE {made:,} OF {want:,}"
             print(f"  {n:44} {made:>8,} {dt:>7.1f} {rate:>9,.0f}{flag}")
-        print(f"\n  set-based is {wr[1][4]/base:.1f}x the template's throughput")
+        print(f"\n  set-based is {ratio(wr[1][4])} the template's throughput")
+
+    if base is None:
+        print("\n  WARNING: the template path wrote 0 edges — speedup not computable.")
 
 
 if __name__ == "__main__":

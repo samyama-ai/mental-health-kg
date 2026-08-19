@@ -14,13 +14,15 @@ a source file would produce either a parse error or an injected clause.
 **link_many_to_one() — attach many nodes to one, set-wise.**
 `helpers.batch_create_edges` emits one MATCH pattern per edge, and its cost grows
 with the node count of the matched label: it SIGKILLed the server at 3,500
-Patient nodes, and silently wrote 236 of 3,536 edges when a batch spanned many
-distinct pairs. This is two patterns regardless of batch size.
+Patient nodes, and slowed to ~16 edges/sec against the NPPES layer. This is two
+patterns regardless of batch size, and measured 8.1x the throughput.
 
 **verify() — count what was written, not what was intended.** Every loader was
 reporting the length of its input list. The HRSA loader reported
-`IN_STATE = 3,037` while the graph held 3,023: fourteen counties whose state was
-missing produced no edge, and nothing noticed. Counts now come from the graph.
+`IN_STATE = 3,043` while the graph held 3,029: fourteen counties in HI, GU, AS
+and MP had no :State node to attach to, so no edge was written and nothing
+noticed. Counts now come from the graph, and the loaders derive their intended
+counts from the writable subset rather than the input length.
 
 **refuse_rerun() — no in-place replacement.** These loaders use CREATE, so a second
 run duplicates a layer, and it looks like a successful load until the counts are
@@ -96,7 +98,8 @@ def already_loaded(client, label, graph=GRAPH) -> int:
     """How many nodes of `label` exist. Non-zero means a re-run will duplicate.
 
     None of these loaders is idempotent -- they CREATE. Re-importing a snapshot
-    on top of an existing graph once silently doubled it to 35,356 nodes, which
+    on top of a graph that already holds the same data adds a second copy rather
+    than replacing it -- a 17,678-node facility import came back as 35,356, which
     looks like a working load until the counts are read. Callers refuse to run
     and point at a fresh container -- see refuse_rerun().
     """
@@ -117,9 +120,9 @@ def refuse_rerun(existing: dict, layer: str) -> None:
         f"Refusing to run: the graph already holds "
         + ", ".join(f"{v:,} :{k}" for k, v in existing.items() if v)
         + f".\n\nThese loaders CREATE, so a second run duplicates the {layer} layer.\n"
-          "In-place deletion is NOT offered: DETACH DELETE leaves the property\n"
-          "index dirty on this engine, and subsequent IN-list writes then attach\n"
-          "edges to unrelated nodes. Verified 2026-08-14.\n\n"
+          "No --replace is offered: importing a snapshot into a fresh container\n"
+          "takes ~4s for 1.67M edges, which is faster than deleting in place and\n"
+          "leaves no room for a half-finished wipe.\n\n"
           "Start clean instead:\n"
           "  docker rm -f samyama-mh && docker run -d --name samyama-mh \\\n"
           "    -p 18080:8080 public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0\n"

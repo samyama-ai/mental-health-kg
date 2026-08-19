@@ -68,7 +68,10 @@ _SUFFIXES = (" County", " Parish", " Borough", " Census Area", " Municipality",
 def norm_county(name: str) -> str:
     n = (name or "").strip()
     changed = True
-    while changed:                     # "St. Louis City County" -> "St. Louis"
+    # Looping, not a single strip: "Prince of Wales-Hyder Census Area Borough"
+    # carries two. "St. Louis City County" -> "St. Louis City", which keeps the
+    # independent city distinct from St. Louis County, as intended above.
+    while changed:
         changed = False
         for suf in _SUFFIXES:
             if n.endswith(suf) and len(n) > len(suf):
@@ -99,14 +102,20 @@ def load_hpsa(client: SamyamaClient, csv_path: str) -> dict:
     rows = [r for r in read_csv(csv_path)
             if r.get("Discipline") == "Mental Health"
             and r.get("HPSA Status") == "Designated"]
-    counts["rows_kept"] = len(rows)
 
+    # Drop unmapped jurisdictions here rather than letting them fall out further
+    # down. Previously they were only reported: the county and COVERS phases
+    # skipped them (no state code to key on) but the ShortageArea phase did not,
+    # so the graph gained designation nodes with no county attached and
+    # rows_kept counted rows that were only partly loaded.
     unmapped = sorted({r["State"] for r in rows if r["State"] not in STATE_CODE})
     if unmapped:
         skipped = sum(1 for r in rows if r["State"] not in STATE_CODE)
+        rows = [r for r in rows if r["State"] in STATE_CODE]
         print(f"  [skip] {skipped:,} rows in {len(unmapped)} unmapped "
               f"jurisdictions: {', '.join(unmapped)}", flush=True)
         counts["rows_skipped_unmapped_state"] = skipped
+    counts["rows_kept"] = len(rows)
 
     for label, prop in [("ShortageArea", "hpsa_id"), ("County", "county_key")]:
         try:
@@ -138,10 +147,23 @@ def load_hpsa(client: SamyamaClient, csv_path: str) -> dict:
     by_state: dict[str, list[str]] = {}
     for k, (_, s) in counties.items():
         by_state.setdefault(s, []).append(k)
+    # A county can only attach to a :State that exists, and the State layer comes
+    # from the facility source. Any state with no facilities has no :State node,
+    # so its counties are left unattached -- expected, not a fault of this
+    # loader, but it means the intended count is not len(counties).
+    known_states = {r[0] for r in client.query(
+        "MATCH (s:State) RETURN s.code", GRAPH).records}
     for st, keys in by_state.items():
         link_many_to_one(client, "County", "county_key", keys,
                          "IN_STATE", "State", "code", st)
-    counts["IN_STATE"] = len(counties)
+    counts["IN_STATE"] = sum(len(k) for st, k in by_state.items() if st in known_states)
+    orphans = sorted(st for st in by_state if st not in known_states)
+    if orphans:
+        n_orphan = sum(len(by_state[st]) for st in orphans)
+        counts["counties_without_state_node"] = n_orphan
+        print(f"  [note] {n_orphan} counties in {', '.join(orphans)} have no :State "
+              f"node to attach to -- those states have no facilities in the graph",
+              flush=True)
 
     # --- shortage areas -------------------------------------------------
     # 13,836 rows collapse to 6,420 designations; one HPSA can span several

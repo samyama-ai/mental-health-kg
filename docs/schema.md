@@ -242,13 +242,14 @@ SDK 0.6.1**, so any KG needing "matching X but not Y" must run against a server.
   container and importing a snapshot (~4 s) remains the recommended route — but
   because it is simple and fast, not because in-place deletion is unsafe.
 
-- **`batch_create_edges` from the shared template does not scale.**- **`batch_create_edges` from the shared template does not scale.** It emits one `MATCH`
+- **`batch_create_edges` from the shared template does not scale.** It emits one `MATCH`
   pattern per edge — 300+ per query — and its cost grows with the number of nodes already
   carrying the matched label. It SIGKILLed the server (exit 137, which reads as host OOM
-  and is not) at 3,500 `Patient` nodes, and silently created only 236 of 3,536 edges when
-  the batch spanned many distinct `State`/`Taxonomy` pairs. Use a set-based form instead:
+  and is not) at 3,500 `Patient` nodes. It does *not* write silently-partial batches: an
+  earlier claim to that effect here was retracted above, because the graph-isolation bug
+  made the measurement untrustworthy. Use a set-based form instead:
   `MATCH (s:X) WHERE s.key IN [...] WITH s MATCH (t:Y) WHERE t.key = "..." CREATE ...`,
-  which is two patterns regardless of batch size and ran ~5× faster. Every KG repo copies
+  which is two patterns regardless of batch size and measured 8.1× the throughput. Every KG repo copies
   this helper verbatim.
 
 ## Planned — not in v0.1

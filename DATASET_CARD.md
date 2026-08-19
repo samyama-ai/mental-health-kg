@@ -21,7 +21,11 @@ of where that help does *not* exist.
 | [NPPES NPI Registry](https://download.cms.gov/nppes/NPI_Files.html) | CMS | US federal government work — **public domain** | 2026-08-13 | Provider, Taxonomy |
 | [HRSA HPSA](https://data.hrsa.gov/data/download) | HRSA / HHS | US federal government work — **public domain** | 2026-08-13 | ShortageArea, County |
 | [Synthea](https://github.com/synthetichealth/synthea) | The MITRE Corporation | **Apache 2.0** | 2026-08-12 | Patient, Condition |
-| [NUCC taxonomy](https://www.nucc.org/) | NUCC | published code set | 2026-08-13 | Taxonomy attributes |
+
+The [NUCC taxonomy](https://www.nucc.org/) code set (published, 2026-08-13) supplies
+the human-readable classification, grouping and specialisation on `Taxonomy` nodes.
+It is a lookup applied to the NPPES layer rather than a fifth source, so it has no
+`DataSource` node and is not counted in the four above.
 
 **No licence in this graph restricts redistribution.** Three sources are US
 federal government works and therefore public domain; Synthea is Apache 2.0. The
@@ -120,6 +124,14 @@ snapshots. Full detail in [`docs/schema.md`](docs/schema.md#data-currency).
   since the provider registered. NPPES is authoritative for *who is licensed in
   what discipline*; it is not a current directory of where they practise. Prefer
   the per-state aggregate counts over the named rows for anything load-bearing.
+- **Hawaii and the Pacific territories are missing from the facility layer.** The
+  national sweep was a single 5,000 km probe from the geographic centre of the
+  contiguous US, which reaches Alaska (4,179 km) and Puerto Rico (3,911 km) but
+  not Honolulu (5,922 km) or Guam (11,199 km). The graph therefore holds 52
+  `State` nodes with no HI, and 14 HRSA counties in HI, GU, AS and MP with no
+  `IN_STATE` edge. `etl/download_data.py` now sweeps four probes instead of one —
+  109 facilities in HI and 6 in GU/MP — but **this snapshot predates that fix**
+  and every count on this page is from the four-source build of 2026-08-18.
 - **Facility deduplication is exact-match** on name+address; a facility listed
   under two spellings appears twice. This is correct for multi-site organisations
   and wrong for typos.

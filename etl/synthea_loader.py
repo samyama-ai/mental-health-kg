@@ -29,7 +29,7 @@ from pathlib import Path
 
 from samyama import SamyamaClient
 
-from etl.graph_utils import link_many_to_one, refuse_rerun, verify
+from etl.graph_utils import cq, link_many_to_one, refuse_rerun, verify
 from etl.helpers import GRAPH, batch_create_nodes, read_csv
 
 # Conditions worth modelling for a referral graph. Synthea emits ~200 distinct
@@ -91,7 +91,7 @@ def load_synthea(client: SamyamaClient, data_dir: str, cohort: str) -> dict:
     # Cohorts are additive by design (MA then VT), so an existing Patient layer
     # is fine -- but the SAME cohort twice would duplicate it silently.
     dup = client.query(
-        f'MATCH (p:Patient) WHERE p.cohort = "{cohort}" RETURN count(p)',
+        f'MATCH (p:Patient) WHERE p.cohort = {cq(cohort)} RETURN count(p)',
         GRAPH).records
     if dup and dup[0][0]:
         refuse_rerun({f"Patient (cohort {cohort})": dup[0][0]}, "Synthea")

@@ -45,15 +45,17 @@ curl -X POST http://localhost:18080/api/snapshot/import \
   -F "file=@mental-health-full.sgsnap"
 
 # confirm before running the demo
-curl -s http://localhost:18080/api/status      # expect ~113,703 nodes
+curl -s http://localhost:18080/api/status      # expect 113,710 nodes
 
 MH_URL=http://localhost:18080 python -m demo.demo
 ```
 
 **Always start from a fresh container.** The image persists between restarts
-inconsistently: importing on top of an existing graph once silently doubled it to
-35,356 nodes, which looks like a successful import until the counts are read. If
-`samyama-mh` already exists, `docker rm -f samyama-mh` first.
+inconsistently: importing on top of a graph that already holds the same data adds
+a second copy rather than replacing it. Caught early on the facility-only graph,
+where a 17,678-node import came back as 35,356 — which looks like a successful
+import until the counts are read. If `samyama-mh` already exists, `docker rm -f
+samyama-mh` first.
 
 ### If you are building it from scratch
 

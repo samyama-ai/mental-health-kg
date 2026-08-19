@@ -1,6 +1,6 @@
 # Mental Health Knowledge Graph
 
-**113,703 nodes. 1,665,143 edges. Four sources in one graph: every US behavioural-health facility and what it offers, the clinicians licensed to practise, the federal shortage designations, and a simulated population to measure coverage against.**
+**113,710 nodes. 1,665,153 edges. Four sources in one graph: every US behavioural-health facility and what it offers, the clinicians licensed to practise, the federal shortage designations, and a simulated population to measure coverage against.**
 
 ![Mental health demo](demo/mental-health.gif)
 
@@ -78,7 +78,7 @@ graph LR
     end
     subgraph shortage["context · HRSA"]
         SA("ShortageArea<br/>6,420")
-        CT("County<br/>3,037")
+        CT("County<br/>3,043")
     end
     subgraph demand["demand · Synthea (synthetic)"]
         PA("Patient<br/>3,500")
@@ -105,7 +105,7 @@ graph LR
 `State` is the hub every source joins on; `County` joins HRSA to the population.
 
 **13 node labels** -- Provider (82,978), Facility (17,254), ShortageArea (6,420),
-Patient (3,500), County (3,037), Service (313), Taxonomy (76), State (52),
+Patient (3,500), County (3,043), Service (313), Taxonomy (76), State (52),
 ServiceCategory (33), Language (24), Condition (11), DataSource (4), FacilityType (2)
 
 `DataSource` is a standalone provenance manifest with no edges: one node per
