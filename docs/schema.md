@@ -103,7 +103,75 @@ referral routing needs.
 | API doc | v1.11, 2026-05-26 |
 | Endpoint | `GET /locator/exportsAsJson/v2` |
 | Licence | **US federal government work — public domain** |
-| Refresh | new facilities monthly; names, addresses, phones and services **weekly** |
+| Refresh | **annual** (N-MHSS survey) — see *Data currency* below |
+
+## Data currency
+
+Checked 2026-08-13, because "how often does it update?" has a more awkward answer than
+the headline numbers suggest, and every filter in this graph depends on it.
+
+| Layer | Publisher cadence | What actually moves |
+|---|---|---|
+| FindTreatment.gov | annual survey; monthly additions; weekly corrections | the **weekly channel is opt-in** — it fires only when a facility notifies SAMHSA |
+| HRSA HPSA | file rebuilt **daily** | designations themselves change rarely |
+| Synthea | not a feed — a generator | pinned by jar version + `-s` seed |
+| Census ACS | annual, 5-year estimates each December | inherently lags 1–2 years |
+
+**FindTreatment.gov.** SAMHSA's own wording: *"All information in the Locator is updated
+annually based on facility responses to SAMHSA's National Mental Health Services Survey…
+updates to facility names, addresses, telephone numbers and services are made weekly, if
+facilities inform SAMHSA of changes."* The systematic refresh is therefore yearly. Phone
+numbers may be fresher than service tags, and the service tags — `IPV`, languages,
+sliding-fee scale — are exactly what this graph filters on. Treat them as up to a year old.
+
+**NPPES.** Monthly full-replacement file; the copy loaded was published 2026-08-10 covering
+NPIs through 2026-08-09. That makes it the freshest *file*.
+
+**At record level it is the stalest layer in the graph** — measured 2026-08-18 across the
+82,978 loaded providers, and worse than HRSA by a wide margin:
+
+| Last updated | providers | | HRSA, for comparison |
+|---|---:|---:|---:|
+| under 90 days | 3,510 | 4.2% | 8% |
+| 90–365 days | 7,445 | 9.0% | 73% |
+| 1–3 years | 13,385 | 16.1% | 6% |
+| **over 3 years** | **58,638** | **70.7%** | 13% |
+
+Range 2007-07-08 to 2026-08-09. The national picture across all 1,891,203
+behavioural-health providers is the same shape: **63.5% over three years old**.
+
+**Half the records have never been touched since the provider first registered.**
+`Last Update Date` equals `Provider Enumeration Date` for **42,217 of 82,978 (50.9%)`, and
+the median gap between the two is **0 days**.
+
+**Consequence for referral use.** A provider's practice address and phone number are only as
+good as their last update, and for most of them that was over three years ago. NPPES is
+authoritative for *who is licensed and in what discipline* — that does not go stale — but it
+should not be treated as a current directory of where someone actually practises. The
+per-state aggregate counts are the safer use; the named-clinician rows are indicative, not
+verified-current.
+
+**HRSA HPSA.** The daily rebuild gets you a fresh *file*, not fresh *facts*. Measured
+across the 13,836 designated mental-health rows in our copy:
+
+| Last updated | designations | |
+|---|---:|---:|
+| under 90 days | 1,053 | 8% |
+| 90–365 days | 10,159 | 73% |
+| 1–3 years | 823 | 6% |
+| over 3 years | 1,801 | 13% |
+
+Newest update 2026-08-05, oldest 2016-09-22; designation dates run back to **1973**.
+
+**Consequence.** The graph is only as current as its slowest authoritative layer, and that
+is annual. Rebuilding weekly would re-download near-identical service data for ~6 minutes
+of fetch and ~14 minutes of load. **Monthly is the recommended rebuild cadence** — it
+catches the genuinely monthly channel (new facilities) and HRSA churn without implying a
+currency the source does not have. There is no incremental feed for either source; both
+are full snapshots.
+
+Fetch dates are recorded in the graph itself as `:DataSource` nodes, so a `.sgsnap` says
+how old it is without reference to this document.
 
 ### API defects worked around
 
@@ -143,6 +211,46 @@ SDK 0.6.1**, so any KG needing "matching X but not Y" must run against a server.
   over the source CSVs. This is why `demo/demo.py` requires a server.
 - **A `WHERE` cannot be followed by another `MATCH`.** Match every required pattern in
   one `MATCH`, then `WITH`, then the optional part.
+- **`ORDER BY` is inverted between aggregates and plain properties, and fails silently —
+  no error, just unsorted output.** Verified 2026-08-13 on the loaded graph:
+
+  | value being sorted | works | silently unsorted |
+  |---|---|---|
+  | aggregate — `count(f) AS n` | `ORDER BY n` | `ORDER BY count(f)` |
+  | property — `h.count AS n` | `ORDER BY h.count` | `ORDER BY n` |
+
+  This is the dangerous class of defect: a "top 5 by volume" table comes back in
+  insertion order and looks perfectly plausible. It shipped into a demo recording
+  before it was caught. Sort in the form that matches the value, or use
+  `WITH … ORDER BY …` which works for both.
+- **RETRACTED 2026-08-18 — the "DETACH DELETE corrupts the property index" claim.**
+  This section previously reported that deleting a layer and reloading it attached
+  edges to unrelated nodes, citing 5,197 `IN_STATE` edges for 3,043 counties. **It
+  does not reproduce.** On a fresh container, delete-and-reload is exact, and a
+  3,000-node reproduction produced correct results.
+
+  The original observation was contaminated by a different, real defect: **the
+  engine ignores the `graph` parameter**, so what looked like isolated test graphs
+  were one shared graph accumulating data across runs
+  ([samyama-graph#15](https://git.samyama.ai/Samyama.ai/samyama-graph/issues/15)).
+  Any measurement that assumed graph isolation — including the "236 of 3,536 edges
+  written silently" claim also previously recorded here — has to be treated as
+  unreliable.
+
+  What survives: loaders still refuse to run against a non-empty layer, because
+  they use `CREATE` and re-running genuinely does duplicate. Starting from a fresh
+  container and importing a snapshot (~4 s) remains the recommended route — but
+  because it is simple and fast, not because in-place deletion is unsafe.
+
+- **`batch_create_edges` from the shared template does not scale.** It emits one `MATCH`
+  pattern per edge — 300+ per query — and its cost grows with the number of nodes already
+  carrying the matched label. It SIGKILLed the server (exit 137, which reads as host OOM
+  and is not) at 3,500 `Patient` nodes. It does *not* write silently-partial batches: an
+  earlier claim to that effect here was retracted above, because the graph-isolation bug
+  made the measurement untrustworthy. Use a set-based form instead:
+  `MATCH (s:X) WHERE s.key IN [...] WITH s MATCH (t:Y) WHERE t.key = "..." CREATE ...`,
+  which is two patterns regardless of batch size and measured 8.1× the throughput. Every KG repo copies
+  this helper verbatim.
 
 ## Planned — not in v0.1
 

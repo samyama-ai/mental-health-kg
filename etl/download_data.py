@@ -44,10 +44,25 @@ PAGE_SIZE = 100
 THROTTLE_S = 0.15          # be a polite citizen of a public health service
 MILES_TO_M = 1609.344
 
-# Geographic centre of the contiguous US; paired with a radius wide enough to
-# sweep the whole country including AK/HI in one query set.
-US_CENTRE = "39.8283,-98.5795"
-US_RADIUS_M = 5_000_000
+# The national sweep is a set of centre+radius probes, not one.
+#
+# A single 5,000 km probe from the geographic centre of the contiguous US was
+# believed to cover the whole country. It does not: Honolulu is 5,922 km from
+# that centre and Guam is 11,199 km, so Hawaii and the Pacific territories fell
+# outside the radius entirely and no facility in them was ever fetched. The
+# symptom was 52 :State nodes with no HI, and HRSA counties in HI/GU/AS/MP left
+# with no IN_STATE edge to attach to.
+#
+# Alaska (4,179 km) and Puerto Rico (3,911 km) are inside the mainland probe and
+# were never affected. Results are deduplicated by facility_id, so probes may
+# overlap freely.
+US_PROBES = [
+    ("39.8283,-98.5795", 5_000_000),    # contiguous US + AK + PR + VI
+    ("20.7984,-156.3319", 800_000),     # Hawaii (centred on Maui)
+    ("13.4757,144.7489", 400_000),      # Guam + Northern Mariana Islands
+    ("-14.2756,-170.7020", 300_000),    # American Samoa
+]
+US_CENTRE, US_RADIUS_M = US_PROBES[0]
 
 # Service categories (the `f2` code) whose values we lift into first-class nodes
 # rather than leaving as generic services, because A3-style referral matching
@@ -103,12 +118,19 @@ def _page(addr: str, radius_m: float, page: int) -> dict:
         raise RuntimeError(f"non-JSON response (likely bad parameters): {body[:120]!r}") from e
 
 
-def fetch_all(addr: str, radius_m: float) -> list[dict]:
-    """Page through the locator and return every facility row."""
+def fetch_all(addr: str, radius_m: float, allow_empty: bool = False) -> list[dict]:
+    """Page through the locator and return every facility row.
+
+    A zero-record answer is normally a bug — a swapped sAddr or a radius given in
+    miles — so it raises. `allow_empty` is for the small territory probes, where a
+    genuinely empty result is a real possibility and must not abort the sweep.
+    """
     first = _page(addr, radius_m, 1)
     total_pages = first.get("totalPages") or 0
     total = first.get("recordCount") or 0
     if not total:
+        if allow_empty:
+            return []
         raise RuntimeError(
             "the locator returned 0 records — check the sAddr order is lat,lng "
             "and that the radius is in metres"
@@ -287,13 +309,23 @@ def _write_csvs(rows: list[dict], out: Path) -> dict:
 
 def download_all(out: str = "data", near: str | None = None,
                  radius_miles: float | None = None) -> dict:
-    addr = near or US_CENTRE
-    radius_m = radius_miles * MILES_TO_M if radius_miles else US_RADIUS_M
     national = near is None
+    if national:
+        probes = US_PROBES
+    else:
+        probes = [(near, radius_miles * MILES_TO_M if radius_miles else US_RADIUS_M)]
 
-    print(f"[download] FindTreatment.gov — centre {addr}, radius {radius_m / 1000:,.0f} km",
-          flush=True)
-    rows = fetch_all(addr, radius_m)
+    rows: list[dict] = []
+    for i, (addr, radius_m) in enumerate(probes):
+        print(f"[download] FindTreatment.gov — centre {addr}, "
+              f"radius {radius_m / 1000:,.0f} km", flush=True)
+        # Only the first probe is load-bearing; an empty territory probe is a
+        # legitimate answer and must not abort the national sweep.
+        got = fetch_all(addr, radius_m, allow_empty=national and i > 0)
+        print(f"[download]   {len(got):,} records", flush=True)
+        rows.extend(got)
+    # Probes overlap; _write_csvs keys facilities by facility_id, so duplicates
+    # collapse there rather than needing a pass here.
 
     if national and len(rows) < EXPECTED_MIN_NATIONAL:
         print(f"[download]   WARN got {len(rows)} rows but expected at least "
