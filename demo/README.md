@@ -28,6 +28,12 @@ single result.
 It opens on provenance — which datasets these answers rest on and how old each
 one is — because that is the first question worth asking of any graph.
 
+**The case stays in Vermont** (steps 4–8). Massachusetts appears only in steps 9
+and 10, where it is explicitly the comparison. That is not arbitrary: the
+facility and shortage layers are national, but the **simulated population and the
+named clinicians exist for MA and VT only**, so those are the two states where a
+demand-side or named-clinician question can be asked at all.
+
 **No dependencies beyond the standard library.** The demo talks to the engine
 over HTTP rather than through the `samyama` SDK. That is deliberate: PyPI
 `samyama` 0.6.1 silently inverts `OPTIONAL MATCH … WHERE x IS NULL`, the
@@ -134,9 +140,10 @@ stops being readable. Truncating it in the display would misrepresent the query
 that ran, so the terminal gets wider instead.
 
 **`--idle-time-limit` truncates pauses, including deliberate ones.** It must sit
-above the longest pause in `demo.py`. With `DEMO_PACE=5` the step pause and the
-row dwell fall consecutively, so the longest gap approaches 12 s; **9.0** caps it
-at a still-readable 9 s rather than cutting it to nothing. An earlier recording
+above the longest pause in `demo.py`. With `DEMO_PACE=5` a row dwell and the next
+step's pause fall consecutively, so the longest gap is
+`min(0.45 × rows, 7.5) + 5` — just under **10 s** for the largest table. **9.0**
+keeps almost all of that rather than cutting it to nothing. An earlier recording
 used 1.5 s against 1.4 s pauses and came out unreadably fast.
 
 **`--font-size 16`, not the default 14.** At 14 the output renders small and

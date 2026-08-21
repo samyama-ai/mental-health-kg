@@ -52,19 +52,29 @@ PSYCH = "2084P0800X"          # NUCC taxonomy: Psychiatry & Neurology / Psychiat
 
 
 def query(cypher: str) -> tuple[dict, float]:
-    request = urllib.request.Request(
-        URL + "/api/query",
-        data=json.dumps({"graph": GRAPH, "query": cypher}).encode(),
-        headers={"Content-Type": "application/json"},
-    )
+    try:
+        request = urllib.request.Request(
+            URL + "/api/query",
+            data=json.dumps({"graph": GRAPH, "query": cypher}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+    except ValueError as exc:
+        # MH_URL=localhost:18080 (no scheme) raises here, before any request is
+        # made, and would otherwise surface as a traceback rather than a message.
+        print(f"\n  {RED}{URL} is not a usable URL{OFF} — {exc}")
+        print(f"{DIM}  Include the scheme: MH_URL=http://localhost:18080{OFF}\n")
+        sys.exit(1)
     started = time.perf_counter()
     try:
         result = json.loads(urllib.request.urlopen(request, timeout=180).read())
     except urllib.error.HTTPError as exc:
         # HTTPError subclasses URLError, so it must be caught first — otherwise a
         # 400 from a running engine is reported as "no engine", which is the one
-        # wrong diagnosis a presenter cannot afford.
-        print(f"\n  {RED}engine returned {exc.code}{OFF} — {exc.read().decode()[:200]}\n")
+        # wrong diagnosis a presenter cannot afford. An error body is not
+        # guaranteed to be UTF-8, and a decode failure here would mask the error
+        # it is trying to report.
+        body = exc.read().decode("utf8", "replace")[:200]
+        print(f"\n  {RED}engine returned {exc.code}{OFF} — {body}\n")
         sys.exit(1)
     except urllib.error.URLError as exc:
         print(f"\n  {RED}no engine at {URL}{OFF} — {exc.reason}\n")
@@ -163,6 +173,10 @@ def main() -> None:
             sys.exit(1)
         return result["records"][0][0]
 
+    def rows(cypher: str) -> list:
+        result, _ = query(cypher)
+        return result.get("records", [])
+
     nodes = count("MATCH (n) RETURN count(n)")
     edges = count("MATCH ()-[r]->() RETURN count(r)")
     if not nodes:
@@ -183,6 +197,28 @@ def main() -> None:
 
     print(f"  {BOLD}{nodes:,}{OFF} nodes   {BOLD}{edges:,}{OFF} edges   "
           f"{BOLD}{sources}{OFF} sources")
+
+    # The narration quotes national totals that the displayed queries do not
+    # return. Read them from the graph so a data refresh cannot leave the words
+    # disagreeing with the tables beside them.
+    ipv_total = count(f'MATCH (f:Facility)-[:OFFERS]->(s:Service) '
+                      f'WHERE s.value = "{IPV}" RETURN count(f)')
+    asl_total = count(f'MATCH (f:Facility)-[:SPEAKS]->(l:Language) '
+                      f'WHERE l.name = "{ASL}" RETURN count(f)')
+    offers_total = count("MATCH ()-[r:OFFERS]->() RETURN count(r)")
+
+    # Step 8 asks which states are thinnest, then names every facility in them.
+    # The second query must not restate that list as a constant: an equal-count
+    # tie at the thin end could make the two disagree on screen after a rebuild.
+    # ORDER BY takes a tiebreaker so the choice is deterministic, and the list
+    # is carried across in Python so the two queries cannot drift apart.
+    thin = [r[0] for r in rows(
+        f'MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(t:Service), '
+        f'(f)-[:SPEAKS]->(l:Language) '
+        f'WHERE a.value = "{IPV}" AND t.value = "{TRAUMA}" AND l.name = "{ASL}" '
+        f'RETURN f.state AS state, count(DISTINCT f.facility_id) AS facilities '
+        f'ORDER BY facilities ASC, state ASC LIMIT 4')]
+    thin_list = ", ".join(f'"{st}"' for st in thin)
 
     step(
         1, "[provenance]",
@@ -209,9 +245,9 @@ def main() -> None:
     step(
         3, "[level 2 — a join]",
         "Which states serve survivors of partner violence — and which barely do?",
-        "6,072 facilities nationally are tagged as serving survivors of partner\n"
-        "violence. The same question asked from both ends is the first hint that\n"
-        "a national number hides the thing that matters.",
+        f"{ipv_total:,} facilities nationally are tagged as serving survivors of\n"
+        "partner violence. The same question asked from both ends is the first\n"
+        "hint that a national number hides the thing that matters.",
         [f"""MATCH (f:Facility)-[:OFFERS]->(s:Service)
         WHERE s.value = "{IPV}"
         RETURN f.state AS state, count(f) AS ipv_facilities
@@ -233,8 +269,9 @@ def main() -> None:
         WHERE t.value = "{TRAUMA}"
           AND a.value = "{IPV}"
           AND f.state = "VT"
-        RETURN DISTINCT f.name AS facility, f.city AS town,
+        WITH DISTINCT f.name AS facility, f.city AS town,
                coalesce(f.intake, f.phone) AS call
+        RETURN facility, town, call
         LIMIT 6""",
         width=38,
     )
@@ -260,12 +297,13 @@ def main() -> None:
     step(
         6, "[level 4 — absence]",
         "She must not be sent to an opioid-only programme. Who is left?",
-        "138 facilities match before the exclusion, 127 after. The eleven removed\n"
-        "would turn her away at the door. An embedding cannot represent a service\n"
-        "a facility does not offer — absence is not a point in the space.",
+        "In Vermont 22 facilities match before the exclusion and 18 after. The\n"
+        "four removed are opioid-use-disorder-only programmes that would turn her\n"
+        "away at the door. An embedding cannot represent a service a facility\n"
+        "does not offer — absence is not a point in the space.",
         [f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(t:Service)
         WHERE a.value = "{IPV}"
-          AND t.value = "{TRAUMA}" AND f.state = "MA"
+          AND t.value = "{TRAUMA}" AND f.state = "VT"
         WITH f OPTIONAL MATCH (f)-[:OFFERS]->(x:Service)
         WHERE x.value = "{OPIOID_ONLY}"
         WITH f, x
@@ -280,8 +318,9 @@ def main() -> None:
         WITH f OPTIONAL MATCH (f)-[:OFFERS]->(x:Service)
         WHERE x.value = "{OPIOID_ONLY}"
         WITH f, x WHERE x IS NULL
-        RETURN DISTINCT f.name AS facility, f.city AS town,
+        WITH DISTINCT f.name AS facility, f.city AS town,
                coalesce(f.intake, f.phone) AS call
+        RETURN facility, town, call
         LIMIT 4"""],
         width=38,
     )
@@ -291,15 +330,16 @@ def main() -> None:
         "She is leaving tonight and has nowhere to sleep.",
         "Survivor services, housing support and a 24-hour residential bed, all\n"
         "true of the same facility. In a normalised schema that is three\n"
-        "self-joins against 1.4 million service rows.",
+        f"self-joins against {offers_total:,} facility-to-service rows.",
         f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(h:Service),
               (f)-[:OFFERS]->(r:Service)
         WHERE a.value = "{IPV}"
           AND h.value = "{HOUSING}"
           AND r.value = "{RESIDENTIAL}"
-          AND f.state = "MA"
-        RETURN DISTINCT f.name AS facility, f.city AS town,
+          AND f.state = "VT"
+        WITH DISTINCT f.name AS facility, f.city AS town,
                coalesce(f.intake, f.phone) AS call
+        RETURN facility, town, call
         LIMIT 5""",
         limit=5, width=38,
     )
@@ -307,27 +347,27 @@ def main() -> None:
     step(
         8, "[a gap, and the whole of it]",
         "A Deaf survivor needs an interpreter. Where is that hardest to find?",
-        "Sign language is the single largest access need in this data — 6,023\n"
+        f"Sign language is the single largest access need in this data — {asl_total:,}\n"
         "facilities offer it — but it is not spread evenly. Asked from the thin\n"
         "end, and then asked again for the names, the answer stops being a\n"
-        "statistic: this is the entire supply in those states, eleven buildings.",
+        "statistic: this is the entire supply in those states.",
         [f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(t:Service),
               (f)-[:SPEAKS]->(l:Language)
         WHERE a.value = "{IPV}"
           AND t.value = "{TRAUMA}"
           AND l.name = "{ASL}"
         RETURN f.state AS state, count(DISTINCT f.facility_id) AS facilities
-        ORDER BY facilities ASC LIMIT 4""",
+        ORDER BY facilities ASC, state ASC LIMIT 4""",
          f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(t:Service),
               (f)-[:SPEAKS]->(l:Language)
         WHERE a.value = "{IPV}"
           AND t.value = "{TRAUMA}"
           AND l.name = "{ASL}"
-          AND f.state IN ["SD", "RI", "AR", "ND"]
+          AND f.state IN [{thin_list}]
         RETURN f.state AS state, f.name AS facility, f.city AS town,
                coalesce(f.intake, f.phone) AS call
         ORDER BY f.state"""],
-        limit=11, width=34,
+        limit=20, width=34,
     )
 
     step(
@@ -368,6 +408,9 @@ def main() -> None:
         RETURN s.code AS state, count(DISTINCT f.facility_id) AS ipv_facilities,
                h.count AS psychiatrists
         ORDER BY ipv_facilities DESC"""],
+        # h.count is returned un-aggregated beside an aggregate, so the result
+        # implicitly groups by it too. That is correct only because there is
+        # exactly one HAS_PROVIDERS edge per (state, taxonomy) pair.
         limit=5,
     )
 
