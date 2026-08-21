@@ -31,7 +31,7 @@ RETURN f.name, f.city, f.intake
 
 ## Demo
 
-A narrated walkthrough of the whole graph — **ten questions, ~65 seconds** — built
+A narrated walkthrough of the whole graph — **ten questions, ~2 minutes** — built
 around the question a survivor actually asks rather than around the schema:
 *someone in Vermont needs trauma care after partner violence — is there any, who
 do they call, and is anyone licensed to deliver it?* It opens on where the data

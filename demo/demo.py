@@ -142,8 +142,13 @@ def step(number: int, level: str, question: str, why: str, cypher,
         if not result.get("records"):
             print(f"  {RED}no rows — is the whole graph loaded?{OFF}")
             continue
-        table(result.get("columns", []), result["records"][:limit], width)
+        rows = result["records"][:limit]
+        table(result.get("columns", []), rows, width)
         print(f"\n  {GREEN}{ms:.0f} ms{OFF}")
+        # An eleven-row table needs longer on screen than a two-row one. A single
+        # fixed pause reads fine after a scalar and races past a list of places.
+        if PACE:
+            time.sleep(min(0.45 * len(rows), PACE * 1.5))
 
 
 def main() -> None:
@@ -300,18 +305,29 @@ def main() -> None:
     )
 
     step(
-        8, "[a gap, not a ranking]",
+        8, "[a gap, and the whole of it]",
         "A Deaf survivor needs an interpreter. Where is that hardest to find?",
         "Sign language is the single largest access need in this data — 6,023\n"
         "facilities offer it — but it is not spread evenly. Asked from the thin\n"
-        "end, the question stops being a leaderboard and becomes a gap map.",
-        f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(t:Service),
+        "end, and then asked again for the names, the answer stops being a\n"
+        "statistic: this is the entire supply in those states, eleven buildings.",
+        [f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(t:Service),
               (f)-[:SPEAKS]->(l:Language)
         WHERE a.value = "{IPV}"
           AND t.value = "{TRAUMA}"
           AND l.name = "{ASL}"
         RETURN f.state AS state, count(DISTINCT f.facility_id) AS facilities
-        ORDER BY facilities ASC LIMIT 6""",
+        ORDER BY facilities ASC LIMIT 4""",
+         f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(t:Service),
+              (f)-[:SPEAKS]->(l:Language)
+        WHERE a.value = "{IPV}"
+          AND t.value = "{TRAUMA}"
+          AND l.name = "{ASL}"
+          AND f.state IN ["SD", "RI", "AR", "ND"]
+        RETURN f.state AS state, f.name AS facility, f.city AS town,
+               coalesce(f.intake, f.phone) AS call
+        ORDER BY f.state"""],
+        limit=11, width=34,
     )
 
     step(

@@ -1,6 +1,6 @@
 # Demo
 
-A narrated walkthrough of the whole graph — **ten questions, ~65 seconds**, that
+A narrated walkthrough of the whole graph — **ten questions, ~2 minutes**, that
 climb from one a spreadsheet could answer to one that needs four separately
 published federal datasets joined at once. Every Cypher query is shown before its
 answer, with the latency it actually took.
@@ -106,10 +106,10 @@ guarding against.
 ## Re-recording
 
 ```bash
-DEMO_PACE=4 asciinema rec --overwrite --cols 100 --rows 30 --idle-time-limit 5.0 \
+DEMO_PACE=5 asciinema rec --overwrite --cols 100 --rows 30 --idle-time-limit 9.0 \
   -c "bash -c 'MH_URL=http://localhost:18080 python3 -m demo.demo'" \
   demo/mental-health.cast
-agg --font-size 16 --speed 1.0 --idle-time-limit 5.0 \
+agg --font-size 16 --speed 1.0 --idle-time-limit 9.0 \
   demo/mental-health.cast demo/mental-health.gif
 ```
 
@@ -117,9 +117,15 @@ Four settings matter and are easy to get wrong.
 
 **`DEMO_PACE` is required for an unattended recording.** asciinema allocates a
 PTY, so `stdin.isatty()` is true and the demo waits for an Enter that never
-comes. `DEMO_PACE=4` sleeps four seconds instead — long enough to read a table,
-and it gives a reproducible recording rather than one paced by whoever held the
-keyboard.
+comes. `DEMO_PACE=5` sleeps five seconds instead, and gives a reproducible
+recording rather than one paced by whoever held the keyboard. It was 3.5 s once
+and the result was unreadable — the steps now run several queries each, so more
+lands on screen per step than the pause was built for.
+
+On top of that fixed pause, `step()` dwells in proportion to how many rows came
+back (`0.45 s` each, capped at `1.5 × DEMO_PACE`). An eleven-row list of
+facilities needs longer than a single count, and one fixed number cannot serve
+both.
 
 **`--cols 100`, not 80.** The population filter this graph turns on is a
 93-character federal string — `"Clients who have experienced intimate partner
@@ -128,9 +134,10 @@ stops being readable. Truncating it in the display would misrepresent the query
 that ran, so the terminal gets wider instead.
 
 **`--idle-time-limit` truncates pauses, including deliberate ones.** It must sit
-above the longest pause in `demo.py` — 4.0 s with `DEMO_PACE=4`. 5.0 leaves
-headroom. An earlier recording used 1.5 s against 1.4 s pauses and came out
-unreadably fast.
+above the longest pause in `demo.py`. With `DEMO_PACE=5` the step pause and the
+row dwell fall consecutively, so the longest gap approaches 12 s; **9.0** caps it
+at a still-readable 9 s rather than cutting it to nothing. An earlier recording
+used 1.5 s against 1.4 s pauses and came out unreadably fast.
 
 **`--font-size 16`, not the default 14.** At 14 the output renders small and
 cramped beside the sibling repos. 16 gives 983×694 from a 100×30 terminal.
