@@ -31,12 +31,12 @@ RETURN f.name, f.city, f.intake
 
 ## Demo
 
-A narrated walkthrough of the whole graph — **ten questions, ~65 seconds** — that
-climbs from one a spreadsheet could answer to one that needs all four sources at
-once: provenance -> supply -> a state join -> the multi-constraint referral ->
-named facilities with numbers -> the exclusion query -> a language gap ->
-simulated demand -> survivors inside federal shortage designations -> clinical
-capacity. It opens on where the data came from and how old each source is.
+A narrated walkthrough of the whole graph — **ten questions, ~65 seconds** — built
+around the question a survivor actually asks rather than around the schema:
+*someone in Vermont needs trauma care after partner violence — is there any, who
+do they call, and is anyone licensed to deliver it?* It opens on where the data
+came from and how old each source is, and climbs to answers that need all four
+sources at once.
 
 Each step shows its Cypher and the latency it took.
 

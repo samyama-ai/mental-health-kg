@@ -5,18 +5,25 @@ climb from one a spreadsheet could answer to one that needs four separately
 published federal datasets joined at once. Every Cypher query is shown before its
 answer, with the latency it actually took.
 
-| # | Level | Question |
+| # | Kind | Question |
 |---|---|---|
 | 1 | provenance | Where did this data come from, and how old is it? |
-| 2 | 1 — one label | How much help exists, and in what languages? |
-| 3 | 2 — a join | Which states serve survivors of intimate partner violence? |
-| 4 | 3 — three conditions | She needs Spanish, and cannot pay the full fee. Who can take her? |
-| 5 | 3 — the answer | Name them, with a number to call. |
-| 6 | 4 — absence | Trauma counselling — but NOT opioid-only programmes. |
-| 7 | 4 — a gap | Which languages is Vermont missing entirely? |
-| 8 | 5 — demand | Who needs that help, and where do they live? |
-| 9 | 5 — four sources | How many live somewhere already called under-served? |
-| 10 | 5 — capacity | A facility existing is not a clinician existing. Is anyone there? |
+| 2 | one label | How much help exists across the country? |
+| 3 | a join | Which states serve survivors of partner violence — and which barely do? |
+| 4 | **the real question** | Someone in Vermont needs trauma care after partner violence. Is there any? |
+| 5 | **the follow-up** | …and is there anyone licensed to actually deliver it there? |
+| 6 | absence | She must not be sent to an opioid-only programme. Who is left? |
+| 7 | four conditions | She is leaving tonight and has nowhere to sleep. |
+| 8 | a gap | A Deaf survivor needs an interpreter. Where is that hardest to find? |
+| 9 | demand | Who needs this help, and how many live where help is already scarce? |
+| 10 | all four sources | Where are survivors worst served, and is anyone there to help them? |
+
+Steps 4 and 5 are the pair worth watching: a directory can answer *where is
+there a building*, and a licence register can answer *who is licensed here*.
+Neither can answer both, because nobody joins them. Several steps run more than
+one query — a real question rarely resolves in one, and showing two is more
+honest than a join that cross-products two unrelated tables for the sake of a
+single result.
 
 It opens on provenance — which datasets these answers rest on and how old each
 one is — because that is the first question worth asking of any graph.

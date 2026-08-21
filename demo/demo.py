@@ -39,8 +39,16 @@ BOLD, DIM, CYAN, GREEN, YELLOW, RED, OFF = (
     "\033[1m", "\033[2m", "\033[36m", "\033[32m", "\033[33m", "\033[31m", "\033[0m",
 )
 
+# Spelled exactly as the federal sources spell them; a near-miss matches nothing.
 IPV = "Clients who have experienced intimate partner violence, domestic violence"
 IPVCOND = "Victim of intimate partner abuse (finding)"
+TRAUMA = "Trauma-related counseling"
+SLIDING = "Sliding fee scale (fee is based on income and other factors)"
+HOUSING = "Housing services"
+RESIDENTIAL = "Residential/24-hour residential"
+ASL = "Sign language services for the deaf and hard of hearing"
+OPIOID_ONLY = "Opioid use disorder clients only"
+PSYCH = "2084P0800X"          # NUCC taxonomy: Psychiatry & Neurology / Psychiatry
 
 
 def query(cypher: str) -> tuple[dict, float]:
@@ -110,28 +118,32 @@ def pause() -> None:
         pass
 
 
-def step(number: int, level: str, question: str, why: str, cypher: str,
+def step(number: int, level: str, question: str, why: str, cypher,
          limit: int = 6, width: int = 52) -> None:
+    """Ask one question. `cypher` may be several queries — a real question
+    rarely resolves in one, and splitting them is more honest than a join that
+    cross-products two unrelated tables together for the sake of one result."""
     pause()
     print(f"\n{DIM}  {level}{OFF}")
     print(f"{BOLD}{YELLOW}  {number}. {question}{OFF}")
     for line in why.splitlines():
         print(f"{DIM}  {line}{OFF}")
-    print()
-    for line in cypher.strip().splitlines():
-        print(f"  {CYAN}{line.strip()}{OFF}")
-    print()
-    if PACE:
-        time.sleep(min(PACE / 2, 2.5))   # let the query land before its answer
-    result, ms = query(cypher)
-    if "error" in result:
-        print(f"  {RED}{result['error'][:200]}{OFF}")
-        return
-    if not result.get("records"):
-        print(f"  {RED}no rows — is the whole graph loaded?{OFF}")
-        return
-    table(result.get("columns", []), result["records"][:limit], width)
-    print(f"\n  {GREEN}{ms:.0f} ms{OFF}")
+    for part in ([cypher] if isinstance(cypher, str) else cypher):
+        print()
+        for line in part.strip().splitlines():
+            print(f"  {CYAN}{line.strip()}{OFF}")
+        print()
+        if PACE:
+            time.sleep(min(PACE / 2, 2.5))   # let the query land before its answer
+        result, ms = query(part)
+        if "error" in result:
+            print(f"  {RED}{result['error'][:200]}{OFF}")
+            continue
+        if not result.get("records"):
+            print(f"  {RED}no rows — is the whole graph loaded?{OFF}")
+            continue
+        table(result.get("columns", []), result["records"][:limit], width)
+        print(f"\n  {GREEN}{ms:.0f} ms{OFF}")
 
 
 def main() -> None:
@@ -181,128 +193,166 @@ def main() -> None:
 
     step(
         2, "[level 1 — one label]",
-        "How much help exists, and in what languages?",
-        "Every US behavioural-health facility, and the languages each one speaks.\n"
+        "How much help exists across the country?",
+        "Every US behavioural-health facility, by the kind of care it provides.\n"
         "A spreadsheet answers this. It is the floor, not the argument.",
-        """MATCH (f:Facility)-[:SPEAKS]->(l:Language)
-        RETURN l.name AS language, count(f) AS facilities
-        ORDER BY facilities DESC LIMIT 5""",
-        limit=5,
+        """MATCH (f:Facility)-[:HAS_TYPE]->(t:FacilityType)
+        RETURN t.name AS care_type, count(f) AS facilities
+        ORDER BY facilities DESC""",
     )
 
     step(
         3, "[level 2 — a join]",
-        "Which states serve survivors of intimate partner violence?",
+        "Which states serve survivors of partner violence — and which barely do?",
         "6,072 facilities nationally are tagged as serving survivors of partner\n"
-        "violence — CanopyCare's exact user population, in a free federal dataset.",
-        f"""MATCH (f:Facility)-[:OFFERS]->(s:Service)
+        "violence. The same question asked from both ends is the first hint that\n"
+        "a national number hides the thing that matters.",
+        [f"""MATCH (f:Facility)-[:OFFERS]->(s:Service)
         WHERE s.value = "{IPV}"
         RETURN f.state AS state, count(f) AS ipv_facilities
-        ORDER BY ipv_facilities DESC LIMIT 6""",
+        ORDER BY ipv_facilities DESC LIMIT 5""",
+         f"""MATCH (f:Facility)-[:OFFERS]->(s:Service)
+        WHERE s.value = "{IPV}"
+        RETURN f.state AS state, count(f) AS ipv_facilities
+        ORDER BY ipv_facilities ASC LIMIT 5"""],
+        limit=5,
     )
 
     step(
-        4, "[level 3 — three conditions, one facility]",
-        "She needs Spanish, and cannot pay the full fee. Who can take her?",
-        "Survivor population, sliding fee scale and Spanish, all true of the same\n"
-        "facility, in her state. In a normalised schema this is three self-joins\n"
-        "against 1.4 million service rows. Here it is one pattern.",
-        f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(b:Service),
-              (f)-[:SPEAKS]->(l:Language)
-        WHERE a.value = "{IPV}"
-          AND b.value = "Sliding fee scale (fee is based on income and other factors)"
-          AND l.name = "Spanish" AND f.state = "MA"
-        RETURN count(DISTINCT f.facility_id) AS matching_facilities""",
-    )
-
-    step(
-        5, "[level 3 — the actual answer]",
-        "Name them, with a number to call.",
-        "This is the difference the graph makes to a survivor: named places with\n"
-        "intake numbers, instead of one generic national hotline.",
-        f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(b:Service),
-              (f)-[:SPEAKS]->(l:Language)
-        WHERE a.value = "{IPV}"
-          AND b.value = "Sliding fee scale (fee is based on income and other factors)"
-          AND l.name = "Spanish" AND f.state = "MA"
-        RETURN DISTINCT f.name AS facility, f.city AS city,
+        4, "[the question a survivor actually asks]",
+        "Someone in Vermont needs trauma care after partner violence. Is there any?",
+        "Not a count — a place, a town and a number to call. This is the whole\n"
+        "point of the graph: the answer a helpline gives today is one national\n"
+        "number, because nobody has joined these fields together.",
+        f"""MATCH (f:Facility)-[:OFFERS]->(t:Service), (f)-[:OFFERS]->(a:Service)
+        WHERE t.value = "{TRAUMA}"
+          AND a.value = "{IPV}"
+          AND f.state = "VT"
+        RETURN DISTINCT f.name AS facility, f.city AS town,
                coalesce(f.intake, f.phone) AS call
-        LIMIT 5""",
-        limit=5, width=34,
+        LIMIT 6""",
+        width=38,
+    )
+
+    step(
+        5, "[the follow-up nobody can answer]",
+        "...and is there anyone licensed to actually deliver it there?",
+        "A facility in a directory is a building. This is the second federal\n"
+        "register, joined on the state: who holds a licence in Vermont, and in\n"
+        "what. NPPES is authoritative for who is licensed — not for where they\n"
+        "practise today, since 71% of these records are over three years old.",
+        ["""MATCH (p:Provider)-[:HAS_TAXONOMY]->(t:Taxonomy), (p)-[:PRACTICES_IN]->(s:State)
+        WHERE s.code = "VT" AND p.is_organization = false
+        RETURN t.classification AS speciality, count(p) AS clinicians
+        ORDER BY clinicians DESC LIMIT 5""",
+         """MATCH (p:Provider)-[:HAS_TAXONOMY]->(t:Taxonomy), (p)-[:PRACTICES_IN]->(s:State)
+        WHERE s.code = "VT" AND p.is_organization = false
+        RETURN p.name AS clinician, p.city AS town, t.classification AS speciality
+        LIMIT 4"""],
+        limit=5, width=30,
     )
 
     step(
         6, "[level 4 — absence]",
-        "Trauma counselling — but NOT opioid-only programmes.",
-        "138 facilities match before the exclusion; 127 after. The eleven removed\n"
-        "are opioid-use-disorder-only programmes that would turn her away.\n"
-        "An embedding cannot represent a service a facility does not offer.",
-        f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(t:Service)
+        "She must not be sent to an opioid-only programme. Who is left?",
+        "138 facilities match before the exclusion, 127 after. The eleven removed\n"
+        "would turn her away at the door. An embedding cannot represent a service\n"
+        "a facility does not offer — absence is not a point in the space.",
+        [f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(t:Service)
         WHERE a.value = "{IPV}"
-          AND t.value = "Trauma-related counseling" AND f.state = "MA"
+          AND t.value = "{TRAUMA}" AND f.state = "MA"
         WITH f OPTIONAL MATCH (f)-[:OFFERS]->(x:Service)
-        WHERE x.value = "Opioid use disorder clients only"
+        WHERE x.value = "{OPIOID_ONLY}"
         WITH f, x
         RETURN count(DISTINCT f.facility_id) AS before_exclusion,
                count(DISTINCT CASE WHEN x IS NULL THEN f.facility_id END) AS after_exclusion""",
+         f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(t:Service),
+              (f)-[:OFFERS]->(sl:Service)
+        WHERE a.value = "{IPV}"
+          AND t.value = "{TRAUMA}"
+          AND sl.value = "{SLIDING}"
+          AND f.state = "VT"
+        WITH f OPTIONAL MATCH (f)-[:OFFERS]->(x:Service)
+        WHERE x.value = "{OPIOID_ONLY}"
+        WITH f, x WHERE x IS NULL
+        RETURN DISTINCT f.name AS facility, f.city AS town,
+               coalesce(f.intake, f.phone) AS call
+        LIMIT 4"""],
+        width=38,
     )
 
     step(
-        7, "[level 4 — a gap]",
-        "Which languages is Vermont missing entirely?",
-        "Not 'which are rare' — which are absent from the whole state. Vermont has\n"
-        "27 facilities serving survivors and not one of them speaks Spanish.",
-        """MATCH (l:Language)
-        WITH l OPTIONAL MATCH (f:Facility)-[:SPEAKS]->(l)
-        WHERE f.state = "VT"
-        WITH l, count(f) AS vt_facilities WHERE vt_facilities = 0
-        RETURN l.name AS absent_from_vermont
-        ORDER BY l.name DESC LIMIT 6""",
+        7, "[four conditions, one building]",
+        "She is leaving tonight and has nowhere to sleep.",
+        "Survivor services, housing support and a 24-hour residential bed, all\n"
+        "true of the same facility. In a normalised schema that is three\n"
+        "self-joins against 1.4 million service rows.",
+        f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(h:Service),
+              (f)-[:OFFERS]->(r:Service)
+        WHERE a.value = "{IPV}"
+          AND h.value = "{HOUSING}"
+          AND r.value = "{RESIDENTIAL}"
+          AND f.state = "MA"
+        RETURN DISTINCT f.name AS facility, f.city AS town,
+               coalesce(f.intake, f.phone) AS call
+        LIMIT 5""",
+        limit=5, width=38,
     )
 
     step(
-        8, "[level 5 — the demand side]",
-        "Who needs that help, and where do they live?",
-        "Supply is only half the question. Synthea (MITRE, Apache 2.0) generates a\n"
-        "synthetic population with conditions and geography — no real person is in\n"
-        "this graph. The partner-abuse finding is lifetime screening prevalence,\n"
-        "not current need.",
-        f"""MATCH (p:Patient)-[:HAS_CONDITION]->(c:Condition)
+        8, "[a gap, not a ranking]",
+        "A Deaf survivor needs an interpreter. Where is that hardest to find?",
+        "Sign language is the single largest access need in this data — 6,023\n"
+        "facilities offer it — but it is not spread evenly. Asked from the thin\n"
+        "end, the question stops being a leaderboard and becomes a gap map.",
+        f"""MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(t:Service),
+              (f)-[:SPEAKS]->(l:Language)
+        WHERE a.value = "{IPV}"
+          AND t.value = "{TRAUMA}"
+          AND l.name = "{ASL}"
+        RETURN f.state AS state, count(DISTINCT f.facility_id) AS facilities
+        ORDER BY facilities ASC LIMIT 6""",
+    )
+
+    step(
+        9, "[level 5 — the demand side]",
+        "Who needs this help, and how many live where help is already scarce?",
+        "Supply is half a question. Synthea (MITRE, Apache 2.0) supplies a\n"
+        "synthetic population — no real person is in this graph — and HRSA says\n"
+        "which counties are federally designated shortage areas. Neither\n"
+        "publisher joins to the other, and nobody publishes the intersection.",
+        [f"""MATCH (p:Patient)-[:HAS_CONDITION]->(c:Condition)
         WHERE c.name = "{IPVCOND}"
         RETURN p.state AS state, count(DISTINCT p.patient_id) AS survivors
         ORDER BY survivors DESC""",
-    )
-
-    step(
-        9, "[level 5 — four sources at once]",
-        "How many of them live somewhere the government already calls under-served?",
-        "Synthea says who and where. HRSA says which counties are designated mental-\n"
-        "health shortage areas. Neither publisher joins to the other, and nobody\n"
-        "publishes the intersection: 1,314 of 1,407 survivors live in a designated\n"
-        "county. Here is where they are, worst-served first.",
-        f"""MATCH (p:Patient)-[:HAS_CONDITION]->(c:Condition),
-              (p)-[:IN_COUNTY]->(ct:County)-[:IN_STATE]->(s:State),
+         f"""MATCH (p:Patient)-[:HAS_CONDITION]->(c:Condition),
+              (p)-[:IN_COUNTY]->(ct:County),
               (sa:ShortageArea)-[:COVERS]->(ct)
         WHERE c.name = "{IPVCOND}"
-        RETURN s.code AS state, ct.name AS county,
-               round(avg(sa.score)) AS shortage_score,
-               count(DISTINCT p.patient_id) AS survivors
-        ORDER BY survivors DESC LIMIT 6""",
+        RETURN count(DISTINCT p.patient_id) AS survivors_in_a_shortage_area"""],
     )
 
     step(
-        10, "[level 5 — is anyone there?]",
-        "A facility existing is not a clinician existing. Is anyone there?",
-        "The last layer: 82,978 clinicians from the federal provider register,\n"
-        "counted per state and speciality. Vermont's survivor-serving facilities\n"
-        "sit against a fraction of Massachusetts' psychiatric workforce.",
-        """MATCH (f:Facility)-[:OFFERS]->(a:Service),
+        10, "[level 5 — all four sources]",
+        "Where are survivors worst served, and is anyone there to help them?",
+        "The county they live in, how severe its federal designation is, how many\n"
+        "of them there are, and the clinical workforce of the state around them —\n"
+        "four datasets that no publisher joins, answered in one pass.",
+        [f"""MATCH (p:Patient)-[:HAS_CONDITION]->(cond:Condition),
+              (p)-[:IN_COUNTY]->(ct:County)-[:IN_STATE]->(s:State),
+              (sa:ShortageArea)-[:COVERS]->(ct)
+        WHERE cond.name = "{IPVCOND}"
+        RETURN s.code AS state, ct.name AS county, max(sa.score) AS worst_score,
+               count(DISTINCT p.patient_id) AS survivors
+        ORDER BY worst_score DESC LIMIT 5""",
+         f"""MATCH (f:Facility)-[:OFFERS]->(a:Service),
               (f)-[:LOCATED_IN]->(s:State)-[h:HAS_PROVIDERS]->(t:Taxonomy)
-        WHERE a.value = "Clients who have experienced intimate partner violence, domestic violence"
-          AND t.code = "2084P0800X" AND s.code IN ["MA", "VT"]
+        WHERE a.value = "{IPV}"
+          AND t.code = "{PSYCH}" AND s.code IN ["MA", "VT"]
         RETURN s.code AS state, count(DISTINCT f.facility_id) AS ipv_facilities,
                h.count AS psychiatrists
-        ORDER BY ipv_facilities DESC""",
+        ORDER BY ipv_facilities DESC"""],
+        limit=5,
     )
 
     pause()
