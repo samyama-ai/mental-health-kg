@@ -1,7 +1,176 @@
-server:
-  name: mental-health-kg
-  description: Query the mental health knowledge graph
-graph:
-  host: 127.0.0.1
-  port: 8080
-  tenant: mental-health
+# Mental Health KG — MCP tool configuration for samyama_mcp.
+#
+# The generated tools come from the live schema: count/find_connections/traverse
+# per label and edge type, plus schema_info, cypher_query, pagerank, communities
+# and shortest_path. Against the four-source graph that is 44 tools before a
+# single line of Cypher is written here.
+#
+# The custom tools below are the questions the graph exists to answer, and every
+# one of them is the Cypher the demo already runs and checks against an
+# independent count. Four constraints shape how they are written and are not
+# stylistic -- each was found by a tool returning a wrong answer first:
+#
+#   * `RETURN DISTINCT` is a silent no-op on engine 1.7.0 — it returns every row.
+#     `WITH DISTINCT` and `count(DISTINCT …)` are correct, so those are used
+#     throughout. See docs/schema.md.
+#   * `ORDER BY` an alias works for an aggregate (`count(x) AS n … ORDER BY n`)
+#     but is silently ignored for a plain property (`h.count AS n … ORDER BY n`
+#     returns rows in insertion order). Plain properties are therefore ordered by
+#     the expression. This is the opposite of the aggregate case in #17.
+#   * An alias may not be named `call`: samyama_mcp's read-only guard uppercases
+#     every token and rejects `CALL` as a write keyword, so `AS call` makes a
+#     read query look like a write.
+#   * A variable that is a relationship *target* in one comma-separated pattern
+#     and a *source* in another is not unified across three or more patterns.
+#     Where a query needs that shape it is written as one chained path instead.
+#
+# String parameters are escaped by samyama_mcp but not quoted, so templates wrap
+# them in double quotes themselves.
+#
+# `coalesce(f.intake, f.phone)` is sound, though `etl/loader.py` writes
+# `r.get("intake", "")` and coalesce does not treat "" as absent.
+# `helpers.prop_str` skips any value that is None or "", so an empty intake is
+# never written as a property and reads back as NULL. Measured on the loaded
+# graph: 0 facilities have `intake = ""`, 11,734 have `intake IS NULL`, and 0 of
+# 17,254 return a null or empty number. `tests/test_mcp_config.py` pins the
+# prop_str invariant this depends on.
+
+include_node_tools: true
+include_edge_tools: true
+include_vector_tools: false      # no embeddings in this graph
+include_algorithm_tools: true
+
+custom_tools:
+
+  - name: data_sources
+    description: "Where every layer of this graph came from, who publishes it, when it was fetched, how often it really refreshes, and whether it describes real people or simulated ones. Ask this before trusting any other answer."
+    cypher_template: >
+      MATCH (d:DataSource)
+      RETURN d.name AS source, d.publisher AS publisher, d.fetched AS fetched,
+             d.cadence AS refresh, d.real_data AS real_data, d.caveat AS caveat
+      ORDER BY d.name
+    parameters: []
+
+  - name: find_referral
+    description: "Facilities in one state offering a named service — the name, the town and a number to call. This is the core referral lookup: not a count, a place someone can be sent to."
+    cypher_template: >
+      MATCH (f:Facility)-[:OFFERS]->(s:Service)
+      WHERE s.value = "{service}" AND f.state = "{state}"
+      WITH DISTINCT f.name AS facility, f.city AS town,
+             coalesce(f.intake, f.phone) AS phone
+      RETURN facility, town, phone
+      LIMIT {limit}
+    parameters:
+      - {name: service, type: str, default: "Trauma-related counseling"}
+      - {name: state, type: str, default: "VT"}
+      - {name: limit, type: int, default: 10}
+
+  - name: find_referral_two_services
+    description: "Facilities in one state offering BOTH named services — for example trauma counselling and experience with partner violence. Every constraint a caller states narrows the list, and this is how two are applied at once."
+    cypher_template: >
+      MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(b:Service)
+      WHERE a.value = "{service_a}" AND b.value = "{service_b}"
+        AND f.state = "{state}"
+      WITH DISTINCT f.name AS facility, f.city AS town,
+             coalesce(f.intake, f.phone) AS phone
+      RETURN facility, town, phone
+      LIMIT {limit}
+    parameters:
+      - {name: service_a, type: str, default: "Trauma-related counseling"}
+      - {name: service_b, type: str, default: "Clients who have experienced intimate partner violence, domestic violence"}
+      - {name: state, type: str, default: "VT"}
+      - {name: limit, type: int, default: 10}
+
+  - name: find_referral_excluding
+    description: "Facilities matching two services but NOT a third — the absence question. Use it to rule out a programme that would be wrong for someone, such as an opioid-only service for a person who does not need one."
+    cypher_template: >
+      MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:OFFERS]->(b:Service)
+      WHERE a.value = "{service_a}" AND b.value = "{service_b}"
+        AND f.state = "{state}"
+      WITH f
+      OPTIONAL MATCH (f)-[:OFFERS]->(x:Service)
+      WHERE x.value = "{exclude_service}"
+      WITH f, x WHERE x IS NULL
+      WITH DISTINCT f.name AS facility, f.city AS town,
+             coalesce(f.intake, f.phone) AS phone
+      RETURN facility, town, phone
+      LIMIT {limit}
+    parameters:
+      - {name: service_a, type: str, default: "Trauma-related counseling"}
+      - {name: service_b, type: str, default: "Clients who have experienced intimate partner violence, domestic violence"}
+      - {name: exclude_service, type: str, default: "Opioid use disorder clients only"}
+      - {name: state, type: str, default: "VT"}
+      - {name: limit, type: int, default: 10}
+
+  - name: find_facilities_by_language
+    description: "Facilities in one state that can serve someone in a named language. Language is the constraint most often missing from a referral, and the one that most often makes the difference."
+    cypher_template: >
+      MATCH (f:Facility)-[:SPEAKS]->(l:Language)
+      WHERE l.name = "{language}" AND f.state = "{state}"
+      WITH DISTINCT f.name AS facility, f.city AS town,
+             coalesce(f.intake, f.phone) AS phone
+      RETURN facility, town, phone
+      LIMIT {limit}
+    parameters:
+      - {name: language, type: str, default: "Spanish"}
+      - {name: state, type: str, default: "VT"}
+      - {name: limit, type: int, default: 10}
+
+  - name: service_coverage_by_state
+    description: "How many facilities offer a named service, state by state, thinnest first. This is the coverage question — where the help does NOT exist — and it is what a count of facilities cannot tell you on its own."
+    cypher_template: >
+      MATCH (f:Facility)-[:OFFERS]->(s:Service)
+      WHERE s.value = "{service}"
+      RETURN f.state AS state, count(DISTINCT f.facility_id) AS facilities
+      ORDER BY facilities ASC, f.state ASC
+      LIMIT {limit}
+    parameters:
+      - {name: service, type: str, default: "Clients who have experienced intimate partner violence, domestic violence"}
+      - {name: limit, type: int, default: 10}
+
+  - name: licensed_clinicians_by_speciality
+    description: "How many individual licensed clinicians practise in a state, grouped by speciality, from the federal NPPES register. A facility in a directory is a building; this is whether anyone is licensed to deliver care there."
+    cypher_template: >
+      MATCH (p:Provider)-[:HAS_TAXONOMY]->(t:Taxonomy), (p)-[:PRACTICES_IN]->(s:State)
+      WHERE s.code = "{state}" AND p.is_organization = false
+      RETURN t.classification AS speciality, count(p) AS clinicians
+      ORDER BY clinicians DESC
+      LIMIT {limit}
+    parameters:
+      - {name: state, type: str, default: "VT"}
+      - {name: limit, type: int, default: 10}
+
+  - name: national_provider_counts
+    description: "The national count of licensed providers for one taxonomy code, per state, from the aggregate layer. Individual clinician rows exist only for MA and VT; this covers all 50 states."
+    cypher_template: >
+      MATCH (s:State)-[h:HAS_PROVIDERS]->(t:Taxonomy)
+      WHERE t.code = "{taxonomy_code}"
+      RETURN s.code AS state, h.count AS providers
+      ORDER BY h.count DESC
+      LIMIT {limit}
+    parameters:
+      - {name: taxonomy_code, type: str, default: "2084P0800X"}
+      - {name: limit, type: int, default: 10}
+
+  - name: shortage_areas_in_state
+    description: "Counties in a state that the federal government already designates as mental-health shortage areas, worst score first. Independent corroboration that a coverage gap found in the facility data is real."
+    cypher_template: >
+      MATCH (sa:ShortageArea)-[:COVERS]->(ct:County)-[:IN_STATE]->(s:State)
+      WHERE s.code = "{state}"
+      RETURN ct.name AS county, max(sa.score) AS worst_score,
+             count(DISTINCT sa.hpsa_id) AS designations
+      ORDER BY worst_score DESC
+      LIMIT {limit}
+    parameters:
+      - {name: state, type: str, default: "VT"}
+      - {name: limit, type: int, default: 10}
+
+  - name: simulated_demand_in_shortage_areas
+    description: "How many simulated people with a given condition live in a county carrying a federal shortage designation — the four-source join. Patients are Synthea-generated and describe nobody; use this to size a gap, never as a count of real people."
+    cypher_template: >
+      MATCH (p:Patient)-[:HAS_CONDITION]->(c:Condition),
+            (p)-[:IN_COUNTY]->(ct:County)<-[:COVERS]-(sa:ShortageArea)
+      WHERE c.name = "{condition}"
+      RETURN count(DISTINCT p.patient_id) AS people_in_a_shortage_area
+    parameters:
+      - {name: condition, type: str, default: "Victim of intimate partner abuse (finding)"}
