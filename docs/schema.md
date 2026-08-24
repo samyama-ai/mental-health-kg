@@ -187,8 +187,10 @@ Recorded because they cost time and are not in the published documentation.
 
 ### Engine defects encountered
 
-Found while querying the loaded graph. All three affect anyone building a KG from the
+Found while querying the loaded graph. Most affect anyone building a KG from the
 shared template, which pins `samyama>=0.6.0` and therefore resolves to **0.6.1**.
+Two of them — pattern unification and `RETURN DISTINCT` — are **server** defects and
+are not avoided by running against the engine.
 
 The third is the serious one: **negative constraints cannot be expressed at all in
 SDK 0.6.1**, so any KG needing "matching X but not Y" must run against a server.
@@ -209,6 +211,42 @@ SDK 0.6.1**, so any KG needing "matching X but not Y" must run against a server.
   {…})` and `WHERE NOT "…" IN collect(…)` are parse errors. The **server engine (1.7.0)
   answers all of them correctly** — verified at 127 and 67 against an independent count
   over the source CSVs. This is why `demo/demo.py` requires a server.
+- **A variable shared between comma-separated patterns is not always unified.**
+  Verified 2026-08-21 on the **server engine 1.7.0** — this one is not an SDK defect.
+  With three or more comma-separated patterns, a variable that is a relationship
+  *target* in one and a *source* in another has its predicate applied only to the
+  first occurrence:
+
+  ```cypher
+  -- WRONG: 52 distinct h.count values, one per state, not California's
+  MATCH (f:Facility)-[:OFFERS]->(a:Service), (f)-[:LOCATED_IN]->(s:State),
+        (s)-[h:HAS_PROVIDERS]->(t:Taxonomy)
+  WHERE s.code = "CA" AND t.code = "2084P0800X"
+
+  -- RIGHT: one edge, 10,714
+  MATCH (f:Facility)-[:OFFERS]->(a:Service),
+        (f)-[:LOCATED_IN]->(s:State)-[h:HAS_PROVIDERS]->(t:Taxonomy)
+  WHERE s.code = "CA" AND t.code = "2084P0800X"
+  ```
+
+  **The boundary, measured rather than assumed.** A shared variable that is the
+  *source* of every pattern it appears in unifies correctly, at any number of
+  patterns — `(f)-[:OFFERS]->(a), (f)-[:OFFERS]->(t), (f)-[:SPEAKS]->(l)` is sound,
+  and three such queries in `demo/demo.py` were checked against independent
+  set-intersection counts in Python (16=16, 4=4, 2=2). Two comma-separated patterns
+  sharing a target-then-source variable are also correct. **Only the
+  target-then-source case at three or more patterns is wrong.** Chaining the shared
+  variable into one path pattern fixes it, and on one national query also took the
+  runtime from **49 s to 47 ms**.
+
+- **`RETURN DISTINCT` is a no-op on the server too**, not only in the SDK. Verified
+  2026-08-21 against engine 1.7.0: `MATCH (p:Patient) RETURN DISTINCT p.state`
+  returns all **3,500** rows for **2** distinct states. `count(DISTINCT …)` and
+  `WITH DISTINCT … RETURN …` are both correct. The note above says this looks
+  "fixed but unpublished" at v1.1.0 — the running server reports 1.7.0 and still
+  has it, so prefer `WITH DISTINCT` everywhere. `demo/demo.py` uses that form for
+  exactly this reason.
+
 - **A `WHERE` cannot be followed by another `MATCH`.** Match every required pattern in
   one `MATCH`, then `WITH`, then the optional part.
 - **`ORDER BY` is inverted between aggregates and plain properties, and fails silently —

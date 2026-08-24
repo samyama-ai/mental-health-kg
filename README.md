@@ -31,10 +31,14 @@ RETURN f.name, f.city, f.intake
 
 ## Demo
 
-A long-form narrated walkthrough of the whole graph — nine steps, ~92 seconds,
-paced to be read: provenance -> supply -> the multi-constraint referral -> the
-exclusion query -> simulated demand -> the coverage gap -> federal shortage
-designations -> real clinical capacity -> a named clinician with a licence.
+A narrated walkthrough of the whole graph — **ten questions, ~2 minutes** — built
+around the question a survivor actually asks rather than around the schema:
+*someone in Vermont needs trauma care after partner violence — is there any, who
+do they call, and is anyone licensed to deliver it?* It opens on where the data
+came from and how old each source is, and climbs to answers that need all four
+sources at once.
+
+Each step shows its Cypher and the latency it took.
 
 ```bash
 docker rm -f samyama-mh 2>/dev/null                                 # always fresh
@@ -52,12 +56,15 @@ curl -X POST http://localhost:18080/api/snapshot/import \
 MH_URL=http://localhost:18080 python -m demo.demo
 ```
 
-See [`demo/README.md`](demo/README.md) for re-recording, including the two
-asciinema settings that quietly make the result unreadable if set wrong.
+Press Enter between steps to pace it yourself; piped or redirected it runs
+straight through. See [`demo/README.md`](demo/README.md) for re-recording,
+including the four settings that quietly make the result unreadable if set wrong.
 
-> The demo needs a **server**, not the embedded client. PyPI `samyama` 0.6.1 inverts
-> `OPTIONAL MATCH` exclusion — step 4 returns the 11 facilities that *do* offer the
-> excluded service instead of the 127 that do not. See [`docs/schema.md`](docs/schema.md).
+> The demo needs a **server**, not the embedded client — it uses plain HTTP and
+> no SDK for exactly that reason. PyPI `samyama` 0.6.1 inverts the `OPTIONAL
+> MATCH` exclusion, so step 6 would return the 11 facilities that *do* offer the
+> excluded service instead of the 127 that do not. See
+> [`docs/schema.md`](docs/schema.md).
 
 ---
 
