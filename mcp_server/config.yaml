@@ -7,8 +7,8 @@
 #
 # The custom tools below are the questions the graph exists to answer, and every
 # one of them is the Cypher the demo already runs and checks against an
-# independent count. Two engine constraints shape how they are written and are
-# not stylistic:
+# independent count. Four constraints shape how they are written and are not
+# stylistic -- each was found by a tool returning a wrong answer first:
 #
 #   * `RETURN DISTINCT` is a silent no-op on engine 1.7.0 — it returns every row.
 #     `WITH DISTINCT` and `count(DISTINCT …)` are correct, so those are used
@@ -26,6 +26,14 @@
 #
 # String parameters are escaped by samyama_mcp but not quoted, so templates wrap
 # them in double quotes themselves.
+#
+# `coalesce(f.intake, f.phone)` is sound, though `etl/loader.py` writes
+# `r.get("intake", "")` and coalesce does not treat "" as absent.
+# `helpers.prop_str` skips any value that is None or "", so an empty intake is
+# never written as a property and reads back as NULL. Measured on the loaded
+# graph: 0 facilities have `intake = ""`, 11,734 have `intake IS NULL`, and 0 of
+# 17,254 return a null or empty number. `tests/test_mcp_config.py` pins the
+# prop_str invariant this depends on.
 
 include_node_tools: true
 include_edge_tools: true
@@ -160,8 +168,8 @@ custom_tools:
   - name: simulated_demand_in_shortage_areas
     description: "How many simulated people with a given condition live in a county carrying a federal shortage designation — the four-source join. Patients are Synthea-generated and describe nobody; use this to size a gap, never as a count of real people."
     cypher_template: >
-      MATCH (p:Patient)-[:IN_COUNTY]->(ct:County), (sa:ShortageArea)-[:COVERS]->(ct),
-            (p)-[:HAS_CONDITION]->(c:Condition)
+      MATCH (p:Patient)-[:HAS_CONDITION]->(c:Condition),
+            (p)-[:IN_COUNTY]->(ct:County)<-[:COVERS]-(sa:ShortageArea)
       WHERE c.name = "{condition}"
       RETURN count(DISTINCT p.patient_id) AS people_in_a_shortage_area
     parameters:

@@ -149,9 +149,12 @@ are declared in [`mcp_server/config.yaml`](mcp_server/config.yaml) as the
 questions the graph exists to answer. **54 tools** against the four-source graph.
 
 ```bash
-python -m mcp_server.server --list-tools                   # what it exposes
-python -m mcp_server.server --url http://localhost:18080   # serve it
+python -m mcp_server.server --url http://localhost:18080 --list-tools   # what it exposes
+python -m mcp_server.server --url http://localhost:18080                # serve it
 ```
+
+Both forms need a reachable server. Most tools are derived from the live schema,
+so there is no list to print until the graph can be read.
 
 ```json
 {"mcpServers": {"mental-health-kg": {
