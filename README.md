@@ -8,6 +8,23 @@
 > This repo holds the loader and source-data specifics for the KG.
 
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="License"></a>
+<a href="https://huggingface.co/datasets/VaidhyaMegha/mental-health-kg"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20dataset-VaidhyaMegha%2Fmental--health--kg-yellow" alt="HuggingFace dataset"></a>
+
+**The graph is published as a dataset** — you do not have to run the ETL to get it:
+**[huggingface.co/datasets/VaidhyaMegha/mental-health-kg](https://huggingface.co/datasets/VaidhyaMegha/mental-health-kg)**
+(`v1.0`). All 113,710 nodes and 1,665,153 edges as node/edge CSVs, 30 MB.
+
+```python
+from datasets import load_dataset
+facilities = load_dataset("VaidhyaMegha/mental-health-kg", "facility", revision="v1.0")
+```
+
+> ⚠️ **Two things are held back from the published dataset, deliberately.**
+> `Provider.licence` and `Provider.licence_state` are **removed** — the snapshot populates
+> them for **41,485** real clinicians, and [`DATASET_CARD.md`](DATASET_CARD.md) commits to
+> masking licence numbers in any published artifact. For the same reason **no `.sgsnap` is
+> shipped**: the snapshot still contains them. Every other field, node and edge is present.
+> Rebuild from the ETL here if you need the full graph.
 
 ---
 
@@ -155,5 +172,34 @@ pyproject.toml
 ```
 
 ---
-_Data is US federal government work and public domain; this repo is Apache 2.0. The graph
-holds facilities, services and provenance — never survivors, sessions or contact records._
+## Links
+
+| | |
+|---|---|
+| **Published dataset** (licence numbers removed) | **[huggingface.co/datasets/VaidhyaMegha/mental-health-kg](https://huggingface.co/datasets/VaidhyaMegha/mental-health-kg)** |
+| Dataset card (sources, licences, limitations) | [`DATASET_CARD.md`](DATASET_CARD.md) |
+| Samyama Graph | [github.com/samyama-ai/samyama-graph](https://github.com/samyama-ai/samyama-graph) |
+| FindTreatment.gov (SAMHSA) | [findtreatment.gov](https://findtreatment.gov) |
+| NPPES NPI Registry (CMS) | [download.cms.gov/nppes](https://download.cms.gov/nppes/NPI_Files.html) |
+| HRSA HPSA | [data.hrsa.gov](https://data.hrsa.gov/data/download) |
+| Synthea (MITRE) | [github.com/synthetichealth/synthea](https://github.com/synthetichealth/synthea) |
+
+## License
+
+Apache 2.0 covers the **code** in this repository — see [`LICENSE`](LICENSE). The **data** is a
+separate matter, and here it is unusually clean:
+
+| Source | Licence | Redistributable |
+|--------|---------|-----------------|
+| FindTreatment.gov (SAMHSA), NPPES (CMS), HRSA HPSA | US federal government works — **public domain** | ✅ |
+| Synthea (MITRE) | **Apache 2.0** | ✅ |
+
+**No source in this graph restricts redistribution.** Full detail, including fetch dates and
+per-source caveats, is in [`DATASET_CARD.md`](DATASET_CARD.md); the graph also carries its own
+provenance as `DataSource` nodes.
+
+---
+_The graph holds knowledge, resources, policy and provenance — never survivors, sessions or
+contact records. The only person-shaped nodes are Synthea's, simulated and flagged as such.
+Real clinicians appear because NPPES is a public federal register; their professional licence
+numbers are removed from the published dataset._
